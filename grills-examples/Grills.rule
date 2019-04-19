@@ -1,0 +1,26 @@
+@RULE Grills
+
+state 1: variable DEAD
+state 2: variable LIVE
+state 3: variable UNKNOWN
+state 4: variable UNKNOWN (at least one must be live)
+state 5: unused
+state 6: origin
+state 7: vertical line
+state (8+k): generation k
+
+@TABLE
+n_states:32
+neighborhood:vonNeumann
+symmetries:none
+
+@COLORS
+127 127 127 127 0 191
+0 0 0 0
+1 0 63 127
+2 255 255 255
+3 63 191 63
+4 255 255 63
+5 255 127 127
+6 191 191 0
+7 255 0 0
