@@ -1149,7 +1149,8 @@ def clmain():
     to be in quotes to ensure it is treated as a single argument to ikpx.
     ''')
 
-    args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o","-v", "c/8o", "-f", "p6k60"])
+    #args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_k40","-v", "c/8o", "-f", "p6k40"])
+    args = parser.parse_args()
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")
