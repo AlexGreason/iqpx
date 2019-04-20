@@ -35,6 +35,7 @@ def calculate_padding(ddt, ddx, ddy):
 class PartialExtender(basegrill):
 
     def __init__(self, W, K, initial_rows, params):
+
         super(PartialExtender, self).__init__()
         '''
         This constructor converts the problem (a rectangular grid of
@@ -60,10 +61,10 @@ class PartialExtender(basegrill):
         dvdt = params['dvdt']
 
         self.reverse = params['reverse'] if ('reverse' in params) else False
-
+        total_width = (self.full_width - 2 * HPADDING) * 2 + 2 * HPADDING
         for v in xrange(self.full_height):
             for u in xrange(self.full_width):
-                if (u < HPADDING) or (u >= self.full_width - HPADDING):
+                if (u < HPADDING) or (u >= self.full_width - HPADDING): # second condition shouldn't trigger
                     state = DEAD_VARIABLE_STATE
                 elif (v < len(initial_rows)):
                     state = 1 << ((initial_rows[v] >> (u - HPADDING)) & 1)
@@ -82,12 +83,22 @@ class PartialExtender(basegrill):
                         continue
                     x = xp // p
                     y = yq // dvdy
-                    self.relate(variable, (t, x, y))
+                    # currently there is: 2 logical columns padding, actual ship, 2 logical columns padding
+                    # I need: padding, ship, ship mirrored, padding
+                    # plus a few variants for odd and gutter symmetry
+                    # it'll only support orthogonal velocities to start
+                    self.relate(variable, (t, x, y)) # this looks like the bit I have to mess with for symmetry
+                    #self.relate(variable, (t, total_width - x - 1, y))
 
                 if (state == UNKNOWN_VARIABLE_STATE) and (v == len(initial_rows)):
                     self.important_variables.add(variable)
                 if (v >= (self.full_height - len(initial_rows))):
                     self.bottom_variables.add(variable)
+        self.enforce_symmetry()
+
+    def enforce_symmetry(self):
+        for (gen, x, y) in self.cells:
+            self.identify(self.cells[(gen, x, y)], self.cells[(gen, self.full_width - x - 1, y)])
 
     def sol2rows(self, sol):
         '''
@@ -999,14 +1010,13 @@ def parse_descriptor(s, tsize, name, default_k=None):
     s = s.split()
     d = {k[0]: k[1:] for k in s}
 
-    defaulti = repr(tuple([(1 if (i == (tsize-1)) else 0) for i in xrange(tsize)]))
+    defaulti = repr(tuple([(1 if (i//2 == (tsize-1)) else 0) for i in xrange(tsize)]))
     if 'i' not in d:
         d['i'] = defaulti
     elif d['i'] == '':
         d['i'] = raw_input("Please enter %d initial rows for %s search [%s] : " % (tsize, name, defaulti)) or defaulti
     else:
         d['i'] = '(%s,)' % d['i'].replace('.', ',')
-
     if 'w' not in d:
         if 'a' not in d:
             d['w'] = repr(4 + canon6(eval(d['i']))[1])
@@ -1139,10 +1149,10 @@ def clmain():
     to be in quotes to ensure it is treated as a single argument to ikpx.
     ''')
 
-    args = parser.parse_args()
+    args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o","-v", "c/8o", "-f", "p6k60"])
 
     horizontal_line()
-    print("Incremental Knightship Partial Extend (ikpx)")
+    print("Incremental Spaceship Partial Extend (iqpx)")
     horizontal_line()
 
     directory = args.directory
