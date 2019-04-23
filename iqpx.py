@@ -683,31 +683,15 @@ def worker_function(name, master_queue, worker_queue, worker_root,
         min_W = max(min_W, 2)
 
         # We enumerate widths backwards so we can eliminate impossible tasks:
-        widths = list(xrange(min_W, max_W + 1))[::-1]
-        unsats = set([])
+        widths = list(xrange(min_W, max_W + 1, 2))[::-1]
 
         for W in widths:
+            i = (W - w)//2
+            rows = tuple([(r << i) for r in fsegment])
+            satisfied = single_work(rows, w, W, K)
 
-            #if (w == 0):
-            #    # Zero tuple:
-            #    offsets = [0]
-            #else:
-            #    # Try different offsets:
-            #    offsets = list(xrange(W - w + 1))
-            offsets = [(W - w)//2]
-            for i in offsets:
-                j = W - w - i
-
-                if ((i+1, j) in unsats) or ((i, j+1) in unsats):
-                    satisfied = False
-                else:
-                    rows = tuple([(r << i) for r in fsegment])
-                    satisfied = single_work(rows, w, W, K)
-
-                if not satisfied:
-                    unsats.add((i, j))
-                #else:
-                    #print("satisfied with %s" % str([w, min_W, max_W, W, i, j]))
+            if not satisfied:
+                break
 
         return (fsegment, max_W)
 
@@ -1161,6 +1145,8 @@ def clmain():
     #2c/5, symmetric, widening from nothing, p6k50, front only, offsets set to [0]: failed (did not find a ship at width 15)
     #offsets = [W - w] also failed
     #offsets = [(W - w)//2] completed, same number of edges, 496 seconds, same ship
+    #stepping W by 2, no other changes: 530 sec
+    #further simplifications of multiple_work: 502 sec. Leaving them in anyway, since it really shouldn't be a slowdown
     #args = parser.parse_args()
 
     horizontal_line()
