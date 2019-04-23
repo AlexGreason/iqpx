@@ -277,6 +277,7 @@ class ikpxtree(object):
         self.hist = Counter()
 
         self.last_backup_saved = 0
+        self.starttime = time.time()
 
     def save_state(self, directory):
 
@@ -503,7 +504,7 @@ class ikpxtree(object):
         showship = None
 
         if completed is not None:
-            showship = ('Spaceship completed by %s.' % completed)
+            showship = ('Spaceship completed by %s in %d seconds' % (completed, int(time.time() - self.starttime)))
         elif (currlength > self.bestlength):
             self.bestlength = currlength
             showship = ("Found partial %s of length %d." % (self.name, currlength))
@@ -687,13 +688,13 @@ def worker_function(name, master_queue, worker_queue, worker_root,
 
         for W in widths:
 
-            if (w == 0):
-                # Zero tuple:
-                offsets = [0]
-            else:
-                # Try different offsets:
-                offsets = list(xrange(W - w + 1))
-
+            #if (w == 0):
+            #    # Zero tuple:
+            #    offsets = [0]
+            #else:
+            #    # Try different offsets:
+            #    offsets = list(xrange(W - w + 1))
+            offsets = [(W - w)//2]
             for i in offsets:
                 j = W - w - i
 
@@ -705,6 +706,8 @@ def worker_function(name, master_queue, worker_queue, worker_root,
 
                 if not satisfied:
                     unsats.add((i, j))
+                #else:
+                    #print("satisfied with %s" % str([w, min_W, max_W, W, i, j]))
 
         return (fsegment, max_W)
 
@@ -1149,8 +1152,16 @@ def clmain():
     to be in quotes to ensure it is treated as a single argument to ikpx.
     ''')
 
-    #args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_k40","-v", "c/8o", "-f", "p6k40"])
-    args = parser.parse_args()
+    #args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_wildmyron","-v", "c/8o", "-f", "p6k50w19", "-l", "c8o_wildmyronpartial.rle"])
+    #args = parser.parse_args(
+    #    args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_myron_mitm", "-v", "c/8o", "-f", "p3k50w19","-b", "p3k50w19", "-l", "c8o_wildmyronpartial.rle"])
+    #args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c10o", "-v", "c/10o", "-f", "p6k50"])
+    args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_memtest_2c5o", "-v", "2c/5o", "-f", "p6k50"])
+    #2c/5, symmetric, widening from nothing, p6k50, front only: 2900 edges, finished in 881 seconds
+    #2c/5, symmetric, widening from nothing, p6k50, front only, offsets set to [0]: failed (did not find a ship at width 15)
+    #offsets = [W - w] also failed
+    #offsets = [(W - w)//2] completed, same number of edges, 496 seconds, same ship
+    #args = parser.parse_args()
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")
