@@ -14,6 +14,8 @@ from collections import Counter
 
 import subprocess
 
+import numpy as np
+
 
 def run_command(cmd):
     proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
@@ -264,7 +266,7 @@ class ikpxtree(object):
         self.lastmm = 0
         self.i6tuple = i6tuple
         self.f6tuple = tuple([0 for _ in i6tuple])
-        self.preds = {i6tuple: (name, 0, 0)}
+        self.preds = {tupleToBytes(i6tuple): (name, 0, 0)}
         self.bestlength = 0
         self.queue = worker_queue
         self.lookahead = lookahead
@@ -326,6 +328,24 @@ class ikpxtree(object):
         newdict = cPickle.load(fp)
         fp.close()
 
+        npartials = len(newdict)
+        key = newdict.keys()[0]
+        if isinstance(key, tuple):
+            print("converting backup to bytes format")
+            i = 0
+            newerdict = {}
+            for (k, v) in newdict.iteritems():
+                i += 1
+                if isinstance(v[0], tuple):
+                    newerdict[tupleToBytes(k)] = (tupleToBytes(v[0]), v[1], v[2])
+                else:
+                    newerdict[tupleToBytes(k)] = v
+                if 1%10000 == 1:
+                    print("converting: %d out of %d complete" % (i, npartials))
+            newdict.clear()
+            newdict = newerdict
+
+
         if modus_operandi == 'append':
             self.preds.update(newdict)
         else:
@@ -339,7 +359,7 @@ class ikpxtree(object):
         l = len(self.i6tuple)
         x, _ = canon6(y[:l])
         while x != self.i6tuple:
-            x = self.preds[x][0]
+            x = bytesToTuple(self.preds[tupleToBytes(x)][0])
             if isinstance(x, basestring):
                 break
             y = splice(x, y, l - 1)
@@ -369,7 +389,7 @@ class ikpxtree(object):
 
         self.lastmm = 0
         for (k, v) in self.preds.iteritems():
-            self.enqueue_work(k, v[2], narrow=False)
+            self.enqueue_work(bytesToTuple(k), v[2], narrow=False)
             plengths[v[1]] += 1
 
         plengths = [x[1] for x in sorted(plengths.items())]
@@ -386,15 +406,15 @@ class ikpxtree(object):
         stdout.flush()
 
     def addpred(self, fsegment, isegment, w):
-        if fsegment in self.preds:
+        if tupleToBytes(fsegment) in self.preds:
             return 0
         else:
-            if isegment not in self.preds:
+            if tupleToBytes(isegment) not in self.preds:
                 print('Warning: new initial segment found.')
                 stdout.flush()
-                self.preds[isegment] = (self.name, 0, 0)
-            currlength = self.preds[isegment][1] + 1
-            self.preds[fsegment] = (isegment, currlength, w)
+                self.preds[tupleToBytes(isegment)] = (self.name, 0, 0)
+            currlength = self.preds[tupleToBytes(isegment)][1] + 1
+            self.preds[tupleToBytes(fsegment)] = (tupleToBytes(isegment), currlength, w)
             self.hist[currlength] += 1
             return currlength
 
@@ -425,8 +445,8 @@ class ikpxtree(object):
         if isinstance(item[0], basestring):
             if item[0] == 'done':
                 _, segment, attained_W = item
-                oldpred = self.preds[segment]
-                self.preds[segment] = (oldpred[0], oldpred[1], attained_W + 1)
+                oldpred = self.preds[tupleToBytes(segment)]
+                self.preds[tupleToBytes(segment)] = (oldpred[0], oldpred[1], attained_W + 1)
                 worker_queue.task_done()
             else:
                 raise ValueError("Command '%s' not recognised." % item[0])
@@ -491,7 +511,7 @@ class ikpxtree(object):
 
                 if othertree is not None:
                     # We compare the head against known tails (or vice-versa):
-                    if fsegment[::-1] in othertree.preds:
+                    if tupleToBytes(fsegment[::-1]) in othertree.preds:
                         hts = self.traceship(fsegment)
                         tts = othertree.traceship(fsegment[::-1])[::-1]
                         ts = splice(hts, tts, len(self.i6tuple))
@@ -540,6 +560,12 @@ class ikpxtree(object):
                         traceback.print_exc()
                 stdout.flush()
 
+def tupleToBytes(data):
+    array = np.array(data, dtype="uint32")
+    return array.tobytes()
+
+def bytesToTuple(data):
+    return tuple(np.frombuffer(data, dtype="uint32"))
 
 def master_function(master_queue, backup_directory, argdict, params, cmd):
     """
@@ -868,8 +894,8 @@ def dict_to_rle(psets, params, homedir, cmd):
     tree.load_state(backup_dir)
 
     for k in tree.preds:
-        if k != i6tuple:
-            ts = tree.traceship(k)
+        if k != tupleToBytes(i6tuple):
+            ts = tree.traceship(bytesToTuple(k))
             rle = trace_to_rle(ts, params)
             if cmd is None:
                 print(rle)
@@ -1135,11 +1161,11 @@ def clmain():
     ''')
 
     # args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_wildmyron","-v", "c/8o", "-f", "p6k50w19", "-l", "c8o_wildmyronpartial.rle"])
-    # args = parser.parse_args(
+    #args = parser.parse_args(
     #    args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_myron_mitm", "-v", "c/8o", "-f", "p3k50w19","-b", "p3k50w19", "-l", "c8o_wildmyronpartial.rle"])
     # args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c10o", "-v", "c/10o", "-f", "p6k50"])
-    args = parser.parse_args(
-        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_memtest_2c5o", "-v", "2c/5o", "-f", "p6k50"])
+    # args = parser.parse_args(
+    #    args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_memtest_c2o", "-v", "c/2o", "-f", "p6k50"])
     # 2c/5, symmetric, widening from nothing, p6k50, front only: 2900 edges, finished in 881 seconds
     # 2c/5, symmetric, widening from nothing, p6k50, front only, offsets set to [0]: failed (did not find a ship at width 15)
     # offsets = [W - w] also failed
@@ -1147,6 +1173,9 @@ def clmain():
     # stepping W by 2, no other changes: 530 sec
     # further simplifications of multiple_work: 502 sec. Leaving them in anyway, since it really shouldn't be a slowdown
     # args = parser.parse_args()
+
+    args = parser.parse_args(
+        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_2", "-v", "c/8o", "-f", "p3k64", "-b", "p3k64"])
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")
