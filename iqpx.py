@@ -1,7 +1,5 @@
-
 import multiprocessing
 import random
-import os
 import argparse
 import signal
 import cPickle
@@ -11,23 +9,24 @@ import time
 from grills import *
 from parserle import rle2bin
 from velocities import parse_velocity, partial_derivatives
-from sys import stderr, stdout
+from sys import stdout
 from collections import Counter
 
 import subprocess
 
-def run_command(cmd):
 
+def run_command(cmd):
     proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
     return proc
 
+
 def calculate_padding(ddt, ddx, ddy):
-    '''
+    """
     Finds the extent of the neighbourhood in either the u or v direction.
     This is used to calculate the length of tuples, and also to determine
     the number of blank columns to include on the left and right sides of
     the problem.
-    '''
+    """
     l = abs(ddx) + abs(ddy)
     return l + max(l, abs(ddt))
 
@@ -64,9 +63,9 @@ class PartialExtender(basegrill):
         total_width = (self.full_width - 2 * HPADDING) * 2 + 2 * HPADDING
         for v in xrange(self.full_height):
             for u in xrange(self.full_width):
-                if (u < HPADDING) or (u >= self.full_width - HPADDING): # second condition shouldn't trigger
+                if (u < HPADDING) or (u >= self.full_width - HPADDING):  # second condition shouldn't trigger
                     state = DEAD_VARIABLE_STATE
-                elif (v < len(initial_rows)):
+                elif v < len(initial_rows):
                     state = 1 << ((initial_rows[v] >> (u - HPADDING)) & 1)
                 else:
                     state = UNKNOWN_VARIABLE_STATE
@@ -77,22 +76,17 @@ class PartialExtender(basegrill):
                     ev = (-v) if self.reverse else v
                     xp = dvdy * u - dudy * ev - a * t
                     yq = ev - t * dvdt
-                    if (xp % p != 0):
+                    if xp % p != 0:
                         continue
-                    if (yq % dvdy != 0):
+                    if yq % dvdy != 0:
                         continue
                     x = xp // p
                     y = yq // dvdy
-                    # currently there is: 2 logical columns padding, actual ship, 2 logical columns padding
-                    # I need: padding, ship, ship mirrored, padding
-                    # plus a few variants for odd and gutter symmetry
-                    # it'll only support orthogonal velocities to start
-                    self.relate(variable, (t, x, y)) # this looks like the bit I have to mess with for symmetry
-                    #self.relate(variable, (t, total_width - x - 1, y))
+                    self.relate(variable, (t, x, y))
 
                 if (state == UNKNOWN_VARIABLE_STATE) and (v == len(initial_rows)):
                     self.important_variables.add(variable)
-                if (v >= (self.full_height - len(initial_rows))):
+                if v >= (self.full_height - len(initial_rows)):
                     self.bottom_variables.add(variable)
         self.enforce_symmetry()
 
@@ -101,10 +95,10 @@ class PartialExtender(basegrill):
             self.identify(self.cells[(gen, x, y)], self.cells[(gen, self.full_width - x - 1, y)])
 
     def sol2rows(self, sol):
-        '''
+        """
         Converts an iglucose solution string into a tuple of rows represented
         as unsigned integers.
-        '''
+        """
         positives = {}
         for s in sol.split():
             try:
@@ -112,17 +106,18 @@ class PartialExtender(basegrill):
                 positives[abs(w)] = (1 if (w > 0) else 0)
             except ValueError:
                 continue
-        rows = [sum([positives[(x*self.full_width)+i+1] << i for i in xrange(self.full_width)]) for x in xrange(self.full_height)]
+        rows = [sum([positives[(x * self.full_width) + i + 1] << i for i in xrange(self.full_width)]) for x in
+                xrange(self.full_height)]
         return tuple(rows)
 
     def exhaust(self, name, prefix, outqueue, timeout=600, skip_complete=False):
-        '''
+        """
         Find all of the possibilities for the next row after the ones
         provided in the problem. Because iglucose is known to have
         wildly varying times, we cut this short if it exceeds the timeout,
         so it is not guaranteed to be exhaustive unless the timeout exceeds
         the maximum CPU time used by any iglucose instance.
-        '''
+        """
 
         sol_fifoname = prefix + '.sol'
         cnf_fifoname = prefix + '.icnf'
@@ -141,7 +136,7 @@ class PartialExtender(basegrill):
         satisfied = False
 
         cnf_fifo = open(cnf_fifoname, 'w+')
-        run_iglucose(("-cpu-lim=%d" % int(timeout)), cnf_fifoname, sol_fifoname);
+        run_iglucose(("-cpu-lim=%d" % int(timeout)), cnf_fifoname, sol_fifoname)
         sol_fifo = open(sol_fifoname, 'r')
 
         try:
@@ -157,11 +152,11 @@ class PartialExtender(basegrill):
                 cnf_fifo.flush()
                 sol = sol_fifo.readline()
 
-                if (sol[:3] == 'SAT'):
+                if sol[:3] == 'SAT':
                     # Completion found:
                     outqueue.put((name, self.sol2rows(sol)))
                     satisfied = True
-                elif (sol[:5] == 'INDET'):
+                elif sol[:5] == 'INDET':
                     running = False
 
             # Try to extend the partial:
@@ -169,7 +164,7 @@ class PartialExtender(basegrill):
                 cnf_fifo.write('a 0\n')
                 cnf_fifo.flush()
                 sol = sol_fifo.readline()
-                if (sol[:3] == 'SAT'):
+                if sol[:3] == 'SAT':
                     satisfied = True
                     stages_completed = 1
                     anticlause = []
@@ -182,12 +177,12 @@ class PartialExtender(basegrill):
                             continue
                         if abs(w) in self.important_variables:
                             anticlause.append(-w)
-                            if (w > 0):
+                            if w > 0:
                                 next_term |= (1 << (w - v0))
                     anticlause = ' '.join([str(a) for a in anticlause if (a != 0)])
                     cnf_fifo.write('%s 0\n' % anticlause)
                     outqueue.put((name, self.sol2rows(sol)))
-                elif (sol[:5] == 'INDET'):
+                elif sol[:5] == 'INDET':
                     running = False
                 else:
                     stages_completed = 2
@@ -207,60 +202,61 @@ class PartialExtender(basegrill):
             os.unlink(sol_fifoname)
             os.unlink(cnf_fifoname)
 
-        return (stages_completed, satisfied)
+        return stages_completed, satisfied
 
 
 def canon6(rows):
-    '''
+    """
     Takes a tuple of rows and returns a canonised version (divided by
     the highest power of 2 which divides the gcd of the rows) together
     with the number of columns necessary to store the tuple. The latter
     is used as a heuristic for deciding which branches of the search
     tree are most auspicious.
-    '''
+    """
 
-    x = reduce((lambda a, b : a | b), rows, 0)
-    while ((x > 0) and ((x & 1) == 0)):
+    x = reduce((lambda a, b: a | b), rows, 0)
+    while (x > 0) and ((x & 1) == 0):
         rows = tuple([(r >> 1) for r in rows])
-        x = reduce((lambda a, b : a | b), rows, 0)
+        x = reduce((lambda a, b: a | b), rows, 0)
     weight = (0 if (x == 0) else (len(bin(x)) - 2))
-    return (rows, weight)
+    return rows, weight
+
 
 def splice(x, y, l):
-    '''
+    """
     Create a new tuple from x and y by overlapping them by l elements.
     This function can left- or right-shift x and y independently to
     ensure they are compatibly normalised. This can be used iteratively
     to reconstruct a long sequence by splicing together short canonised
     sequences.
-    '''
+    """
 
-    xx = reduce((lambda a, b : a | b), x[-l:], 0)
-    yy = reduce((lambda a, b : a | b), y[:l], 0)
+    xx = reduce((lambda a, b: a | b), x[-l:], 0)
+    yy = reduce((lambda a, b: a | b), y[:l], 0)
 
-    while (xx < yy):
+    while xx < yy:
         x = tuple([(r << 1) for r in x])
-        xx = reduce((lambda a, b : a | b), x[-l:], 0)
-    while (yy < xx):
+        xx = reduce((lambda a, b: a | b), x[-l:], 0)
+    while yy < xx:
         y = tuple([(r << 1) for r in y])
-        yy = reduce((lambda a, b : a | b), y[:l], 0)
+        yy = reduce((lambda a, b: a | b), y[:l], 0)
 
-    return (x[:-l] + y)
+    return x[:-l] + y
 
 
 def printint(x):
-    '''
+    """
     Print an integer in reversed binary using asterisks for '1's and
     dots for '0's.
-    '''
+    """
     print(bin(x)[2:][::-1].replace('0', '.').replace('1', '*'))
 
 
 class ikpxtree(object):
-    '''
+    """
     This represents a search tree. In a regular (front or back) search there
     will be precisely one ikpxtree; in a MITM search there are two.
-    '''
+    """
 
     def __init__(self, name, worker_queue, i6tuple, search_width, lookahead, jumpahead):
 
@@ -312,7 +308,8 @@ class ikpxtree(object):
             return
 
         if prompt_user:
-            should_resume = yn2bool(raw_input("Would you like to resume %s search from saved tree? [y] : " % self.name) or 'y')
+            should_resume = yn2bool(
+                raw_input("Would you like to resume %s search from saved tree? [y] : " % self.name) or 'y')
             if not should_resume:
                 return
 
@@ -321,7 +318,7 @@ class ikpxtree(object):
 
         self.last_backup_saved = int(lines[0][0])
         backup_name = lines[1]
-        while (backup_name[-1] == '\n'):
+        while backup_name[-1] == '\n':
             backup_name = backup_name[:-1]
         backup_path = os.path.join(directory, backup_name)
 
@@ -329,23 +326,23 @@ class ikpxtree(object):
         newdict = cPickle.load(fp)
         fp.close()
 
-        if (modus_operandi == 'append'):
+        if modus_operandi == 'append':
             self.preds.update(newdict)
         else:
             raise ValueError("modus_operandi must be 'append'")
 
     def traceship(self, y):
-        '''
+        """
         Produce the entire genealogy of a tuple and splice it together to
         recover the partial head or tail.
-        '''
+        """
         l = len(self.i6tuple)
         x, _ = canon6(y[:l])
-        while (x != self.i6tuple):
+        while x != self.i6tuple:
             x = self.preds[x][0]
             if isinstance(x, basestring):
                 break
-            y = splice(x, y, l-1)
+            y = splice(x, y, l - 1)
         return y
 
     def enqueue_work(self, fsegment, min_W=None, narrow=True):
@@ -402,22 +399,22 @@ class ikpxtree(object):
             return currlength
 
     def process_item(self, item, othertree=None, found=set([]), params=None, cmd=None):
-        '''
+        """
         The main orchestration code performed by the master thread. We keep it
         here instead of in master_function to avoid having duplicated code
         when handling both fronts and backs of spaceships.
-        '''
+        """
 
         worker_queue = self.queue
 
         if isinstance(item, basestring):
-            if (item == 'done'):
+            if item == 'done':
                 pass
-            elif (item == 'commence'):
+            elif item == 'commence':
                 self.rundict()
-            elif (item == 'adawide'):
+            elif item == 'adawide':
                 self.adaptive_widen()
-            elif ((len(item) >= 6) and (item[:5] == 'load ')):
+            elif (len(item) >= 6) and (item[:5] == 'load '):
                 t = rle2bin(item[5:])
                 self.engulf_partial(t, othertree=othertree, found=found)
             else:
@@ -426,7 +423,7 @@ class ikpxtree(object):
             return
 
         if isinstance(item[0], basestring):
-            if (item[0] == 'done'):
+            if item[0] == 'done':
                 _, segment, attained_W = item
                 oldpred = self.preds[segment]
                 self.preds[segment] = (oldpred[0], oldpred[1], attained_W + 1)
@@ -443,13 +440,12 @@ class ikpxtree(object):
 
         self.engulf_partial(item, othertree=othertree, found=found, jumpahead=self.jumpahead, params=params, cmd=cmd)
 
-
     def engulf_partial(self, item, othertree=None, found=set([]), jumpahead=None, params=None, cmd=None):
-        '''
+        """
         Take a partial (sequence of integers encoding rows in binary) and
         digest it, adding new edges to the search tree and enqueueing work
         as appropriate.
-        '''
+        """
 
         worker_queue = self.queue
 
@@ -465,17 +461,17 @@ class ikpxtree(object):
 
         for j in xrange(jumpahead):
 
-            tuple7 = item[j:len(self.i6tuple)+j+1]
+            tuple7 = item[j:len(self.i6tuple) + j + 1]
             isegment, _ = canon6(tuple7[:-1])
             fsegment, w = canon6(tuple7[1:])
 
             currlength = self.addpred(fsegment, isegment, w)
 
-            if (currlength > 0):
+            if currlength > 0:
 
                 self.enqueue_work(fsegment, w)
 
-                if (len(self.preds) % 100 == 0):
+                if len(self.preds) % 100 == 0:
                     try:
                         wqs = worker_queue.qsize()
                         queue_size = ' (%s queue size ~= %d)' % (self.name, wqs)
@@ -505,7 +501,7 @@ class ikpxtree(object):
 
         if completed is not None:
             showship = ('Spaceship completed by %s in %d seconds' % (completed, int(time.time() - self.starttime)))
-        elif (currlength > self.bestlength):
+        elif currlength > self.bestlength:
             self.bestlength = currlength
             showship = ("Found partial %s of length %d." % (self.name, currlength))
 
@@ -546,11 +542,11 @@ class ikpxtree(object):
 
 
 def master_function(master_queue, backup_directory, argdict, params, cmd):
-    '''
+    """
     The function executed by the master thread. It simply pops items from the
     master_queue, reads the name of the ikpxtree to which they belong ('head'
     or 'tail'), and calls the process_item method.
-    '''
+    """
 
     if isinstance(cmd, basestring):
         cmd = run_command(cmd)
@@ -602,9 +598,9 @@ def master_function(master_queue, backup_directory, argdict, params, cmd):
 
     # Determine whether running a regular or MITM search:
     if len(trees) == 2:
-        othertrees = {k : [v for (l, v) in trees.iteritems() if (l != k)][0] for k in trees}
+        othertrees = {k: [v for (l, v) in trees.iteritems() if (l != k)][0] for k in trees}
     else:
-        othertrees = {k : None for k in trees}
+        othertrees = {k: None for k in trees}
 
     print("To quit the program, either Ctrl+C or run the command:")
     print("\033[31;1m kill -SIGINT -%d \033[0m" % os.getpgid(0))
@@ -640,11 +636,11 @@ def master_function(master_queue, backup_directory, argdict, params, cmd):
 
 def worker_function(name, master_queue, worker_queue, worker_root,
                     params, diligence, timeout, encoding):
-    '''
+    """
     The function executed by the worker threads. This receives work from
     the master thread, encodes it as a SAT problem, and delegates it down to
     the iglucose solvers (the _real_ workers!).
-    '''
+    """
 
     def raise_keyboard_interrupt(signal, frame):
         raise KeyboardInterrupt
@@ -654,6 +650,7 @@ def worker_function(name, master_queue, worker_queue, worker_root,
     def single_work(rows, w, W, K):
         px = PartialExtender(W, K, rows, params)
         px.enforce_rule(encoding=encoding)
+        satisfied = False
         if px.easy_unsat():
             # The problem has been deemed unsatisfiable by easy deductions
             # so it would be overkill to run a new instance of iglucose:
@@ -669,13 +666,14 @@ def worker_function(name, master_queue, worker_queue, worker_root,
                 # limit to ensure things continue moving quickly):
                 stages_completed, satisfied = px.exhaust(name, worker_root, master_queue, timeout=timeout)
 
-            if (stages_completed == 0):
+            if stages_completed == 0:
                 # The time limit was reached without a satisfactory
                 # conclusion, so we retry without the initial attempt to
                 # complete the pattern:
-                stages_completed, satisfied = px.exhaust(name, worker_root, master_queue, skip_complete=True, timeout=timeout)
+                stages_completed, satisfied = px.exhaust(name, worker_root, master_queue, skip_complete=True,
+                                                         timeout=timeout)
 
-            return (satisfied or (stages_completed < 2))
+            return satisfied or (stages_completed < 2)
 
     def multiple_work(fsegment, w, min_W, max_W, K):
 
@@ -686,14 +684,14 @@ def worker_function(name, master_queue, worker_queue, worker_root,
         widths = list(xrange(min_W, max_W + 1, 2))[::-1]
 
         for W in widths:
-            i = (W - w)//2
+            i = (W - w) // 2
             rows = tuple([(r << i) for r in fsegment])
             satisfied = single_work(rows, w, W, K)
 
             if not satisfied:
                 break
 
-        return (fsegment, max_W)
+        return fsegment, max_W
 
     def perform_work(item):
         if len(item) == 4:
@@ -730,13 +728,13 @@ def worker_function(name, master_queue, worker_queue, worker_root,
 
 
 def telephone_sanitiser_function(direc, worker_queue, njobs, widenings):
-    '''
+    """
     Acts as a middle-manager between the master and workers, as well as
     ensuring that the interprocess communication between them is cleaned
     up correctly.
 
     This thread is also responsible for adaptive widening.
-    '''
+    """
 
     def raise_keyboard_interrupt(signal, frame):
         raise KeyboardInterrupt
@@ -763,19 +761,20 @@ def telephone_sanitiser_function(direc, worker_queue, njobs, widenings):
         worker_queue.cancel_join_thread()
         worker_queue.close()
 
+
 def horizontal_line():
-    '''
+    """
     Draw a bright green horizontal line of asterisks to stdout, flanked by
     a blank line before and after.
-    '''
-    print('\n\033[32;1m' + ('*'*64) + '\033[0m\n')
+    """
+    print('\n\033[32;1m' + ('*' * 64) + '\033[0m\n')
     stdout.flush()
 
-def printrun(outstream, quantity, char):
 
-    if (quantity <= 0):
+def printrun(outstream, quantity, char):
+    if quantity <= 0:
         return
-    elif (quantity == 1):
+    elif quantity == 1:
         tok = char
     else:
         tok = str(quantity) + char
@@ -785,15 +784,15 @@ def printrun(outstream, quantity, char):
     else:
         outstream[-1] += tok
 
-def trace_to_rle(ts, params):
 
+def trace_to_rle(ts, params):
     dvdy = params['dvdy']
     dudy = params['dudy']
     dvdt = params['dvdt']
     a = params['a']
     p = params['p']
 
-    gcells = {t : [] for t in xrange(p)}
+    gcells = {t: [] for t in xrange(p)}
 
     cells = [(u, v) for (v, x) in enumerate(ts) for (u, dig) in enumerate(bin(x)[2:][::-1]) if (dig == '1')]
 
@@ -801,9 +800,9 @@ def trace_to_rle(ts, params):
         for t in xrange(p):
             xp = dvdy * u - dudy * v - a * t
             yq = v - t * dvdt
-            if (xp % p != 0):
+            if xp % p != 0:
                 continue
-            if (yq % dvdy != 0):
+            if yq % dvdy != 0:
                 continue
             x = xp // p
             y = yq // dvdy
@@ -831,25 +830,25 @@ def trace_to_rle(ts, params):
 
         for (y, x) in g:
 
-            if ((y > lasty) or (x > lastx)):
-                printrun(outstream, runlength, 'o');
-                if (y > lasty):
-                    printrun(outstream, y - lasty, "$");
-                    lasty = y;
-                    lastx = 0;
-                if (x > lastx):
-                    printrun(outstream, x - lastx, 'b');
-                runlength = 0;
-            runlength += 1;
-            lastx = x + 1;
+            if (y > lasty) or (x > lastx):
+                printrun(outstream, runlength, 'o')
+                if y > lasty:
+                    printrun(outstream, y - lasty, "$")
+                    lasty = y
+                    lastx = 0
+                if x > lastx:
+                    printrun(outstream, x - lastx, 'b')
+                runlength = 0
+            runlength += 1
+            lastx = x + 1
 
-        printrun(outstream, runlength, 'o');
+        printrun(outstream, runlength, 'o')
         outstream[-1] += '!\n'
 
     return '\n'.join(outstream)
 
-def dict_to_rle(psets, params, homedir, cmd):
 
+def dict_to_rle(psets, params, homedir, cmd):
     if isinstance(cmd, basestring):
         cmd = run_command(cmd)
 
@@ -882,11 +881,12 @@ def dict_to_rle(psets, params, homedir, cmd):
         cmd.stdin.close()
         cmd.wait()
 
+
 def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=None):
-    '''
+    """
     ...apart from reading and interpreting command-line arguments, which is
     accomplished in the function clmain().
-    '''
+    """
 
     if os.path.exists(homedir):
         print('Directory %s already exists.' % homedir)
@@ -903,11 +903,11 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
 
     print('Exit status: %d' % status)
 
-    if (status != 0):
+    if status != 0:
         raise ValueError('iglucose exited with status %d' % status)
     horizontal_line()
 
-    if (len(psets) == 0):
+    if len(psets) == 0:
         raise ValueError("At least one head or tail thread must be specified.")
     else:
         print('Commencing search with the following parameters:')
@@ -921,7 +921,7 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
     telephone_sanitisers = []
 
     for (direc, pset) in psets.iteritems():
-        new_params = {k : v for (k, v) in params.iteritems()}
+        new_params = {k: v for (k, v) in params.iteritems()}
         new_params['reverse'] = (direc == 'tail')
 
         # Prepare initial work:
@@ -943,17 +943,17 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
 
         for _ in xrange(njobs):
             worker_path = os.path.join(homedir, ('worker%d' % len(workers)))
-            workers.append(multiprocessing.Process(target = worker_function,
-                args = (direc, master_queue, worker_queue, worker_path,
-                        new_params, pset['d'], pset['t'], encoding)))
+            workers.append(multiprocessing.Process(target=worker_function,
+                                                   args=(direc, master_queue, worker_queue, worker_path,
+                                                         new_params, pset['d'], pset['t'], encoding)))
 
         argdict[direc] = (worker_queue, i6tuple, W, K, J)
 
-        telephone_sanitisers.append(multiprocessing.Process(target = telephone_sanitiser_function,
-                args = (direc, worker_queue, njobs, pset['a'])))
+        telephone_sanitisers.append(multiprocessing.Process(target=telephone_sanitiser_function,
+                                                            args=(direc, worker_queue, njobs, pset['a'])))
 
-    master = multiprocessing.Process(target = master_function,
-                args = (master_queue, backup_dir, argdict, params, cmd))
+    master = multiprocessing.Process(target=master_function,
+                                     args=(master_queue, backup_dir, argdict, params, cmd))
 
     # Swallow SIGINT:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -987,17 +987,16 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
 
 
 def parse_descriptor(s, tsize, name, default_k=None):
-
     if default_k is None:
         default_k = 30
     default_k = str(default_k)
 
     s = s.lower()
-    s = ''.join([(c if (c in '0123456789.') else ((' '+c) if (c in 'ijkpwtda') else '')) for c in s])
+    s = ''.join([(c if (c in '0123456789.') else ((' ' + c) if (c in 'ijkpwtda') else '')) for c in s])
     s = s.split()
     d = {k[0]: k[1:] for k in s}
 
-    defaulti = repr(tuple([(1 if (i//2 == (tsize-1)) else 0) for i in xrange(tsize)]))
+    defaulti = repr(tuple([(1 if (i // 2 == (tsize - 1)) else 0) for i in xrange(tsize)]))
     if 'i' not in d:
         d['i'] = defaulti
     elif d['i'] == '':
@@ -1028,7 +1027,7 @@ def parse_descriptor(s, tsize, name, default_k=None):
     if 'd' not in d:
         d['d'] = '0.9'
 
-    d = {k : eval(v) for (k, v) in d.iteritems()}
+    d = {k: eval(v) for (k, v) in d.iteritems()}
 
     for k in 'wkjpt':
         if not isinstance(d[k], int):
@@ -1053,7 +1052,6 @@ def parse_descriptor(s, tsize, name, default_k=None):
 
 
 def clmain():
-
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('-d', '--directory', default=None, help='''
     This must be a fully-qualified path name, such as '/tmp/ikpx'. If the
@@ -1136,18 +1134,19 @@ def clmain():
     to be in quotes to ensure it is treated as a single argument to ikpx.
     ''')
 
-    #args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_wildmyron","-v", "c/8o", "-f", "p6k50w19", "-l", "c8o_wildmyronpartial.rle"])
-    #args = parser.parse_args(
+    # args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_wildmyron","-v", "c/8o", "-f", "p6k50w19", "-l", "c8o_wildmyronpartial.rle"])
+    # args = parser.parse_args(
     #    args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_myron_mitm", "-v", "c/8o", "-f", "p3k50w19","-b", "p3k50w19", "-l", "c8o_wildmyronpartial.rle"])
-    #args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c10o", "-v", "c/10o", "-f", "p6k50"])
-    args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_memtest_2c5o", "-v", "2c/5o", "-f", "p6k50"])
-    #2c/5, symmetric, widening from nothing, p6k50, front only: 2900 edges, finished in 881 seconds
-    #2c/5, symmetric, widening from nothing, p6k50, front only, offsets set to [0]: failed (did not find a ship at width 15)
-    #offsets = [W - w] also failed
-    #offsets = [(W - w)//2] completed, same number of edges, 496 seconds, same ship
-    #stepping W by 2, no other changes: 530 sec
-    #further simplifications of multiple_work: 502 sec. Leaving them in anyway, since it really shouldn't be a slowdown
-    #args = parser.parse_args()
+    # args = parser.parse_args(args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c10o", "-v", "c/10o", "-f", "p6k50"])
+    args = parser.parse_args(
+        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_memtest_2c5o", "-v", "2c/5o", "-f", "p6k50"])
+    # 2c/5, symmetric, widening from nothing, p6k50, front only: 2900 edges, finished in 881 seconds
+    # 2c/5, symmetric, widening from nothing, p6k50, front only, offsets set to [0]: failed (did not find a ship at width 15)
+    # offsets = [W - w] also failed
+    # offsets = [(W - w)//2] completed, same number of edges, 496 seconds, same ship
+    # stepping W by 2, no other changes: 530 sec
+    # further simplifications of multiple_work: 502 sec. Leaving them in anyway, since it really shouldn't be a slowdown
+    # args = parser.parse_args()
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")
@@ -1171,21 +1170,20 @@ def clmain():
     stdout.flush()
 
     if args.head:
-        psets['head'] = parse_descriptor(args.head, tsize, 'head', 6*params['dvdy'] + 12)
+        psets['head'] = parse_descriptor(args.head, tsize, 'head', 6 * params['dvdy'] + 12)
 
     if args.tail:
-        psets['tail'] = parse_descriptor(args.tail, tsize, 'tail', 8*params['dvdy'] + 12)
+        psets['tail'] = parse_descriptor(args.tail, tsize, 'tail', 8 * params['dvdy'] + 12)
 
-    if (len(psets) == 0):
+    if len(psets) == 0:
         print("Neither head nor tail specified; defaulting to head.")
-        psets['head'] = parse_descriptor('', tsize, 'the', 6*params['dvdy'] + 12)
+        psets['head'] = parse_descriptor('', tsize, 'the', 6 * params['dvdy'] + 12)
 
     if ('head' in psets) and (psets['head']['p'] == 0):
         dict_to_rle(psets, params, directory, args.command)
     else:
         do_everything(psets, params, directory, encoding=args.encoding, loadhead=args.loadhead, cmd=args.command)
 
+
 if __name__ == '__main__':
-
     clmain()
-
