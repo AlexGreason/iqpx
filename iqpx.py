@@ -473,12 +473,9 @@ class ikpxtree(object):
         as appropriate.
         """
 
-        worker_queue = self.queue
-
         completed = ('extending %ss' % self.name) if (item[-len(self.f6tuple):] == self.f6tuple) else None
 
         ts = None
-        currlength = 0
 
         if jumpahead is None:
             jumpahead = len(item) - len(self.i6tuple)
@@ -495,17 +492,9 @@ class ikpxtree(object):
 
             if currlength > 0:
 
-                self.enqueue_work(fsegment, w)
-
                 if len(self.preds) % 100 == 0:
-                    try:
-                        wqs = worker_queue.qsize()
-                        queue_size = ' (%s queue size ~= %d)' % (self.name, wqs)
-                        self.lastmm = wqs // 1000000
-                    except NotImplementedError:
-                        # Mac OS X
-                        queue_size = ''
-                    print("%d %s edges traversed%s." % (len(self.preds), self.name, queue_size))
+
+                    print("%d %s edges traversed." % (len(self.preds), self.name))
                     stdout.flush()
 
                 if (cmd is not None) and (self.name == 'head'):
@@ -527,9 +516,6 @@ class ikpxtree(object):
 
         if completed is not None:
             showship = ('Spaceship completed by %s in %d seconds' % (completed, int(time.time() - self.starttime)))
-        elif currlength > self.bestlength:
-            self.bestlength = currlength
-            showship = ("Found partial %s of length %d." % (self.name, currlength))
 
         if showship is not None:
             # Produce a trace of the ship or partial:
@@ -546,25 +532,23 @@ class ikpxtree(object):
                 ts = ts[:-1]
 
             # Ensure we haven't displayed this image before:
-            if ts not in found:
-                found.add(ts)
-                print(showship)
-                print("As integer list: %s" % repr(ts))
-                print("As plaintext:")
-                for t in ts:
-                    printint(t)
-                if params is not None:
-                    print("As RLE:\n")
-                    try:
-                        rle = trace_to_rle(ts, params)
-                        print(rle)
-                        if cmd is not None:
-                            cmd.stdin.write(rle)
-                            cmd.stdin.flush()
-                    except:
-                        import traceback
-                        traceback.print_exc()
-                stdout.flush()
+            print(showship)
+            print("As integer list: %s" % repr(ts))
+            print("As plaintext:")
+            for t in ts:
+                printint(t)
+            if params is not None:
+                print("As RLE:\n")
+                try:
+                    rle = trace_to_rle(ts, params)
+                    print(rle)
+                    if cmd is not None:
+                        cmd.stdin.write(rle)
+                        cmd.stdin.flush()
+                except:
+                    import traceback
+                    traceback.print_exc()
+            stdout.flush()
 
 def tupleToBytes(data):
     array = np.array(data, dtype="uint32")

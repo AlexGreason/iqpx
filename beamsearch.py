@@ -128,7 +128,7 @@ class BeamSearch(ikpxtree):
         defaulti = tuple([(1 if (i // 2 == (tsize - 1)) else 0) for i in xrange(tsize)])
         return defaulti
 
-    def initialize(self):
+    def initialize(self, njobs):
         self.master_queue = multiprocessing.Queue()
         self.worker_queue = multiprocessing.JoinableQueue()
         a, b, p = parse_velocity(velocity)
@@ -153,12 +153,12 @@ class BeamSearch(ikpxtree):
 
         return self.master_queue, self.worker_queue
 
-    def find_extensions(self, partials, partsize, npartials):
+    def find_extensions(self, partials, partsize, npartials, njobs):
         try:
             self.terminate()
         except:
             pass
-        self.initialize()
+        self.initialize(njobs)
         for p in partials:
             trunc = truncate(p, partsize)
             i6tuple, iw = canon6(trunc)
@@ -173,6 +173,7 @@ class BeamSearch(ikpxtree):
                     trunc = truncate(val[1], partsize)
                     canontrunc, truncwidth = canon6(trunc)
                     if canontrunc not in seen and max(canontrunc) > 0:
+                        self.engulf_partial(val[1])
                         seen.add(canontrunc)
                         print(trunc)
                         search.showship(canon)
@@ -206,31 +207,23 @@ def truncate(partial, partsize):
 
 if __name__ == "__main__":
 
-    njobs = 1
+    njobs = 2
     homedir = "/home/exa/Documents/iqpx/beamout"
     velocity = "c/8o"
     direc = "head"
     W = 2
     K = 64
     J = 32
+    beam_width = 16
     encoding = "split"
     timeout = 1
     defaulti = get_defaulti_scratch(velocity)
     partsize = len(defaulti)
     search = BeamSearch(direc, defaulti, W, K, J)
-    #master_queue, worker_queue = search.initialize()
 
-    #i6tuple, iw = canon6((0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-    #ls = (W - iw) // 2
-    #centred_i6tuple = tuple([(r << ls) for r in i6tuple])
-
-    #worker_queue.put((i6tuple, W, K, timeout))
-
-    beam_width = 10
     seen = {(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)}
-    allstages = []
     while True:
-        seen = search.find_extensions(seen, partsize, beam_width)
+        seen = search.find_extensions(seen, partsize, beam_width, njobs)
         print("COMPLETED STAGE")
 # note to tomorrow: after len(seen) reaches beam width:
 # add seen to allstages, terminate current searches (might need to outright redo all the
