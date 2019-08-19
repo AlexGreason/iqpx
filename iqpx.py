@@ -5,6 +5,7 @@ import signal
 import cPickle
 import gzip
 import time
+import math as m
 
 from grills import *
 from parserle import rle2bin
@@ -50,6 +51,8 @@ class PartialExtender(basegrill):
         HPADDING = calculate_padding(params['dudt'], params['dudx'], params['dudy'])
 
         self.full_width = W + 2 * HPADDING
+        halfwidth = lambda x: int(m.ceil(float(x)/2) - 1)
+        initialpad = halfwidth(self.full_width) - halfwidth(canon6(initial_rows)[1])
         self.full_height = len(initial_rows) + 1 + K
         self.important_variables = set([])
         self.bottom_variables = set([])
@@ -68,7 +71,10 @@ class PartialExtender(basegrill):
                 if (u < HPADDING) or (u >= self.full_width - HPADDING):  # second condition shouldn't trigger
                     state = DEAD_VARIABLE_STATE
                 elif v < len(initial_rows):
-                    state = 1 << ((initial_rows[v] >> (u - HPADDING)) & 1)
+                    if u < initialpad:
+                        state = DEAD_VARIABLE_STATE
+                    else:
+                        state = 1 << ((initial_rows[v] >> (u - initialpad)) & 1)
                 else:
                     state = UNKNOWN_VARIABLE_STATE
 
@@ -86,7 +92,7 @@ class PartialExtender(basegrill):
                     y = yq // dvdy
                     self.relate(variable, (t, x, y))
 
-                if (state == UNKNOWN_VARIABLE_STATE) and (v == len(initial_rows)):
+                if (state == UNKNOWN_VARIABLE_STATE) and (v >= len(initial_rows)) and (v < len(initial_rows) + p):
                     self.important_variables.add(variable)
                 if v >= (self.full_height - len(initial_rows)):
                     self.bottom_variables.add(variable)
