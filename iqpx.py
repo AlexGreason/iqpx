@@ -51,9 +51,13 @@ class PartialExtender(basegrill):
         HPADDING = calculate_padding(params['dudt'], params['dudx'], params['dudy'])
 
         initialcanon, initialwidth = canon6(initial_rows)
-        self.full_width = W + 2 * HPADDING
+        full_width = W + 2 * HPADDING
+        true_width = max(full_width, initialwidth + 2 * HPADDING)
+
+        self.full_width = true_width
         halfwidth = lambda x: int(m.ceil(float(x)/2) - 1)
-        initialpad = halfwidth(self.full_width) - halfwidth(initialwidth)
+        initialpad = halfwidth(true_width) - halfwidth(initialwidth)
+        fullpad = halfwidth(true_width) - halfwidth(W)
         self.full_height = len(initial_rows) + 1 + K
         self.important_variables = set([])
         self.bottom_variables = set([])
@@ -66,16 +70,15 @@ class PartialExtender(basegrill):
         dvdt = params['dvdt']
 
         self.reverse = params['reverse'] if ('reverse' in params) else False
-        total_width = (self.full_width - 2 * HPADDING) * 2 + 2 * HPADDING
         for v in xrange(self.full_height):
             for u in xrange(self.full_width):
-                if (u < HPADDING) or (u >= self.full_width - HPADDING):  # second condition shouldn't trigger
-                    state = DEAD_VARIABLE_STATE
-                elif v < len(initial_rows):
+                if v < len(initial_rows):
                     if u < initialpad:
                         state = DEAD_VARIABLE_STATE
                     else:
                         state = 1 << ((initial_rows[v] >> (u - initialpad)) & 1)
+                elif (u < fullpad) or (u >= self.full_width - fullpad):  # second condition shouldn't trigger
+                    state = DEAD_VARIABLE_STATE
                 else:
                     state = UNKNOWN_VARIABLE_STATE
 
@@ -163,6 +166,7 @@ class PartialExtender(basegrill):
 
                 if sol[:3] == 'SAT':
                     # Completion found:
+                    print("found completion of ", self.initial_rows, "with", self.sol2rows(sol))
                     outqueue.put((name, self.sol2rows(sol)))
                     satisfied = True
                 elif sol[:5] == 'INDET':

@@ -185,6 +185,7 @@ class BeamSearch(ikpxtree):
                         self.engulf_partial(canon)
                         seen.add(canontrunc)
                         if len(seen) <= 4:
+                            print(val)
                             print(trunc)
                             search.showship(canon)
                         print("found " + str(len(seen)) + " partials")
@@ -230,14 +231,14 @@ def truncate(partial, partsize):
 
 if __name__ == "__main__":
 
-    njobs = 2
+    njobs = 3
     homedir = "/home/exa/Documents/iqpx/beamout"
     velocity = "c/8o"
     direc = "head"
     W = 2
     K = 64
     J = 32
-    beam_width = 8
+    beam_width = 16
     encoding = "split"
     timeout = 1
     defaulti = get_defaulti_scratch(velocity)
@@ -245,11 +246,14 @@ if __name__ == "__main__":
     search = BeamSearch(direc, defaulti, W, K, J)
 
     seen = {(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)}
+    stagenum = 0
     seen = search.find_extensions(seen, partsize, beam_width, njobs, head=False)
-    print("COMPLETED STAGE")
+    print("COMPLETED STAGE ", stagenum)
+    stagenum += 1
     while True:
         seen = search.find_extensions(seen, partsize, beam_width, njobs, head=False)
-        print("COMPLETED STAGE")
+        print("COMPLETED STAGE ", stagenum)
+        stagenum += 1
 # note to tomorrow: after len(seen) reaches beam width:
 # add seen to allstages, terminate current searches (might need to outright redo all the
 # initialization stuff for a clean slate), queue up work corresponding to the partials found in the previous
