@@ -50,9 +50,10 @@ class PartialExtender(basegrill):
         # Safe amount of horizontal padding:
         HPADDING = calculate_padding(params['dudt'], params['dudx'], params['dudy'])
 
+        initialcanon, initialwidth = canon6(initial_rows)
         self.full_width = W + 2 * HPADDING
         halfwidth = lambda x: int(m.ceil(float(x)/2) - 1)
-        initialpad = halfwidth(self.full_width) - halfwidth(canon6(initial_rows)[1])
+        initialpad = halfwidth(self.full_width) - halfwidth(initialwidth)
         self.full_height = len(initial_rows) + 1 + K
         self.important_variables = set([])
         self.bottom_variables = set([])
@@ -491,11 +492,6 @@ class ikpxtree(object):
             currlength = self.addpred(fsegment, isegment, w)
 
             if currlength > 0:
-
-                if len(self.preds) % 100 == 0:
-
-                    print("%d %s edges traversed." % (len(self.preds), self.name))
-                    stdout.flush()
 
                 if (cmd is not None) and (self.name == 'head'):
                     tempts = self.traceship(fsegment)

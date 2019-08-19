@@ -46,7 +46,10 @@ def worker_function(name, master_queue, worker_queue, worker_root,
 
             if item is None:
                 # Swallow the sentinel and exit:
-                break
+                worker_queue.task_done()
+                print("Got termination sentinel, returning")
+                os._exit(0)
+                return
 
             if isinstance(item, basestring):
                 # Return the item to the master:
@@ -153,7 +156,7 @@ class BeamSearch(ikpxtree):
 
         return self.master_queue, self.worker_queue
 
-    def find_extensions(self, partials, partsize, npartials, njobs):
+    def find_extensions(self, partials, partsize, npartials, njobs, head=False):
         try:
             self.terminate()
         except:
@@ -170,23 +173,43 @@ class BeamSearch(ikpxtree):
                 val = self.master_queue.get()
                 if isinstance(val[1], tuple):
                     canon, width = canon6(val[1])
-                    trunc = truncate(val[1], partsize)
+                    rows = list(val[1])
+                    truncated = 0
+                    while (len(rows) > 1) and (rows[0] == 0) and head and truncated < 8: # FIXME
+                        rows = rows[1:]
+                        truncated += 1
+                    rows = tuple(rows)
+                    trunc = truncate(rows, partsize)
                     canontrunc, truncwidth = canon6(trunc)
                     if canontrunc not in seen and max(canontrunc) > 0:
-                        self.engulf_partial(val[1])
+                        self.engulf_partial(canon)
                         seen.add(canontrunc)
-                        print(trunc)
-                        search.showship(canon)
+                        if len(seen) <= 4:
+                            print(trunc)
+                            search.showship(canon)
                         print("found " + str(len(seen)) + " partials")
                 else:
-                    print(val)
+                    if isinstance(val[2], tuple):
+                        timeout = val[2][3]
+                        if timeout >= 8:
+                            print(val)
             return seen
         except KeyboardInterrupt:
             search.terminate()
             raise KeyboardInterrupt
 
+    def anyalive(self):
+        for w in self.workers:
+            if w.is_alive():
+                return True
+        return False
 
     def terminate(self):
+        try:
+            while not self.worker_queue.empty():
+                val = self.worker_queue.get_nowait()
+        except:
+            pass
         for i in xrange(len(self.workers)):
             self.worker_queue.put(None)
         self.worker_queue.cancel_join_thread()
@@ -214,7 +237,7 @@ if __name__ == "__main__":
     W = 2
     K = 64
     J = 32
-    beam_width = 16
+    beam_width = 8
     encoding = "split"
     timeout = 1
     defaulti = get_defaulti_scratch(velocity)
@@ -222,8 +245,10 @@ if __name__ == "__main__":
     search = BeamSearch(direc, defaulti, W, K, J)
 
     seen = {(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)}
+    seen = search.find_extensions(seen, partsize, beam_width, njobs, head=False)
+    print("COMPLETED STAGE")
     while True:
-        seen = search.find_extensions(seen, partsize, beam_width, njobs)
+        seen = search.find_extensions(seen, partsize, beam_width, njobs, head=False)
         print("COMPLETED STAGE")
 # note to tomorrow: after len(seen) reaches beam width:
 # add seen to allstages, terminate current searches (might need to outright redo all the
