@@ -47,7 +47,7 @@ def worker_function(name, master_queue, worker_queue, worker_root,
             if item is None:
                 # Swallow the sentinel and exit:
                 worker_queue.task_done()
-                print("Got termination sentinel, returning")
+                #print("Got termination sentinel, returning")
                 os._exit(0)
                 return
 
@@ -113,9 +113,9 @@ class BeamSearch(ikpxtree):
 
         # Ensure we haven't displayed this image before:
         print("As integer list: %s" % repr(ts))
-        print("As plaintext:")
-        for t in ts:
-            printint(t)
+        #print("As plaintext:")
+        #for t in ts:
+        #    printint(t)
         if self.params is not None:
             print("As RLE:\n")
             try:
@@ -189,15 +189,17 @@ class BeamSearch(ikpxtree):
                     if canontrunc not in seen and max(canontrunc) > 0:
                         self.engulf_partial(canon, params=self.params)
                         seen.add(canontrunc)
-                        if len(seen) <= 4:
+                        if len(seen) <= 2:
                             print(val)
                             print(trunc)
                             search.showship(canon)
-                        print("found " + str(len(seen)) + " partials")
+                        if len(seen)%16 == 0:
+                            print("found " + str(len(seen)) + " partials")
+                            stdout.flush()
                 else:
                     if isinstance(val[2], tuple):
                         timeout = val[2][3]
-                        if timeout >= 8:
+                        if timeout >= 128:
                             print(val)
             self.save_state(homedir)
             return seen
@@ -237,15 +239,15 @@ def truncate(partial, partsize):
 
 if __name__ == "__main__":
 
-    njobs = 2
-    homedir = "/home/exa/Documents/iqpx/beamout"
+    njobs = 64
+    homedir = "/iqpx/beamout"
     velocity = "3c/11o"
     direc = "head"
     W = 1
-    K = 72
+    K = 88
     J = 32
-    beam_width = 32
-    head_num = 32
+    beam_width = 128
+    head_num = 128
     encoding = "split"
     timeout = 1
     defaulti = get_defaulti_scratch(velocity)
@@ -260,6 +262,7 @@ if __name__ == "__main__":
     while True:
         seen = search.find_extensions(seen, partsize, beam_width, njobs, head=False)
         print("COMPLETED STAGE ", stagenum)
+        stdout.flush()
         stagenum += 1
 
 # TODO: write partials to a file as they're found
