@@ -8,7 +8,7 @@ import os
 
 
 def worker_function(name, master_queue, worker_queue, worker_root,
-                    params, encoding, mintimeout=1):
+                    params, encoding, mintimeout):
     """
     The function executed by the worker threads. This receives work from
     the master thread, encodes it as a SAT problem, and delegates it down to
@@ -131,7 +131,7 @@ class BeamSearch(ikpxtree):
         defaulti = tuple([(1 if (i // 2 == (tsize - 1)) else 0) for i in xrange(tsize)])
         return defaulti
 
-    def initialize(self, njobs):
+    def initialize(self, njobs, timeout=1):
         self.master_queue = multiprocessing.Queue()
         self.worker_queue = multiprocessing.JoinableQueue()
         a, b, p = parse_velocity(velocity)
@@ -148,7 +148,7 @@ class BeamSearch(ikpxtree):
             worker_path = os.path.join(homedir, ('worker%d' % self.all_workers))
             self.workers.append(multiprocessing.Process(target=worker_function,
                                                         args=(direc, self.master_queue, self.worker_queue, worker_path,
-                                                              self.params, encoding)))
+                                                              self.params, encoding, timeout)))
             self.all_workers += 1
 
         for w in self.workers:
@@ -161,11 +161,16 @@ class BeamSearch(ikpxtree):
             self.terminate()
         except:
             pass
-        self.initialize(njobs)
+        timeout = 1
+        if head:
+            timeout = 300
+        self.initialize(njobs, timeout)
+
         for p in partials:
             trunc = truncate(p, partsize)
             i6tuple, iw = canon6(trunc)
-            self.worker_queue.put((i6tuple, 2, self.lookahead, 1))
+            print(i6tuple)
+            self.worker_queue.put((i6tuple, self.search_width, self.lookahead, timeout))
 
         seen = set([])
         try:
@@ -175,14 +180,14 @@ class BeamSearch(ikpxtree):
                     canon, width = canon6(val[1])
                     rows = list(val[1])
                     truncated = 0
-                    while (len(rows) > 1) and (rows[0] == 0) and head and truncated < 8: # FIXME
+                    while (len(rows) > 1) and (rows[0] == 0) and head and truncated < partsize//2:
                         rows = rows[1:]
                         truncated += 1
                     rows = tuple(rows)
                     trunc = truncate(rows, partsize)
                     canontrunc, truncwidth = canon6(trunc)
                     if canontrunc not in seen and max(canontrunc) > 0:
-                        self.engulf_partial(canon)
+                        self.engulf_partial(canon, params=self.params)
                         seen.add(canontrunc)
                         if len(seen) <= 4:
                             print(val)
@@ -194,6 +199,7 @@ class BeamSearch(ikpxtree):
                         timeout = val[2][3]
                         if timeout >= 8:
                             print(val)
+            self.save_state(homedir)
             return seen
         except KeyboardInterrupt:
             search.terminate()
@@ -231,45 +237,29 @@ def truncate(partial, partsize):
 
 if __name__ == "__main__":
 
-    njobs = 3
+    njobs = 2
     homedir = "/home/exa/Documents/iqpx/beamout"
-    velocity = "c/8o"
+    velocity = "3c/11o"
     direc = "head"
-    W = 2
-    K = 64
+    W = 1
+    K = 72
     J = 32
-    beam_width = 16
+    beam_width = 32
+    head_num = 32
     encoding = "split"
     timeout = 1
     defaulti = get_defaulti_scratch(velocity)
     partsize = len(defaulti)
     search = BeamSearch(direc, defaulti, W, K, J)
 
-    seen = {(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)}
+    seen = {defaulti}
     stagenum = 0
-    seen = search.find_extensions(seen, partsize, beam_width, njobs, head=False)
+    seen = search.find_extensions(seen, partsize, head_num, njobs, head=True)
     print("COMPLETED STAGE ", stagenum)
     stagenum += 1
     while True:
         seen = search.find_extensions(seen, partsize, beam_width, njobs, head=False)
         print("COMPLETED STAGE ", stagenum)
         stagenum += 1
-# note to tomorrow: after len(seen) reaches beam width:
-# add seen to allstages, terminate current searches (might need to outright redo all the
-# initialization stuff for a clean slate), queue up work corresponding to the partials found in the previous
-# stage. Truncate the solutions to 2*period rows (period rows from previous generation, period rows from
-# this one), since it already doesn't enforce the rules for cells on the edge there shouldn't be an issue
-# with the previous bit terminating improperly on vacuum.
 
-# also keep track of all_seen (cross-generational). Until I find a c/8o extensible... wick? just report
-# when something is found that was in all seen but not seen, afterwards exclude it (to just allow ships)
-# oh, and just use rows 8-15 for determining if something's been seen before. Or period-2*period-1, more generally
-# since that's just the first new physical row.
-# oh, and check if exhaust is using all period new rows to determine newness, and make it do so if not
-
-# write partials to a per-stage file as they're found
-
-# all this functionality should be moved to BeamSearch, probably move the "starting a new stage" and "ending
-# a stage" functions there early, to keep this bit reasonably tidy
-
-# oh, and of course don't forget to LOUDLY report when a termination-in-vacuum is found (post-first-stage)
+# TODO: write partials to a file as they're found
