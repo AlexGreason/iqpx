@@ -61,6 +61,7 @@ class PartialExtender(basegrill):
         self.full_height = len(initial_rows) + 1 + K
         self.important_variables = set([])
         self.bottom_variables = set([])
+        self.bottom_edge_variables = set([])
         self.initial_rows = initial_rows
 
         p = params['p']
@@ -100,6 +101,11 @@ class PartialExtender(basegrill):
                     self.important_variables.add(variable)
                 if v >= (self.full_height - len(initial_rows)):
                     self.bottom_variables.add(variable)
+                    if (u < fullpad + 2) or (u >= self.full_width - fullpad - 2):
+                        self.bottom_edge_variables.add(variable)
+                #if v >= (self.full_height - 2 * len(initial_rows)):
+                #    if (u < fullpad + 1) or (u >= self.full_width - fullpad - 1):
+                #        self.bottom_edge_variables.add(variable)
         self.enforce_symmetry()
 
     def enforce_symmetry(self):
@@ -172,9 +178,14 @@ class PartialExtender(basegrill):
                 elif sol[:5] == 'INDET':
                     running = False
 
+            #cnf_fifo.write('a %s 0\n' % (' '.join([str(-x) for x in self.bottom_edge_variables])))
+            #cnf_fifo.flush()
+
+
             # Try to extend the partial:
             while running:
-                cnf_fifo.write('a 0\n')
+                #cnf_fifo.write('a 0\n')
+                cnf_fifo.write('a %s 0\n' % (' '.join([str(-x) for x in self.bottom_edge_variables])))
                 cnf_fifo.flush()
                 sol = sol_fifo.readline()
                 if sol[:3] == 'SAT':
