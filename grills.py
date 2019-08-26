@@ -25,9 +25,10 @@ except ImportError as e:
 
 cygwin_dir = None
 
+
 def cygdir():
     # Find the Cygwin64 installation directory
-
+    global cygwin_dir
     if (cygwin_dir is not None) and os.path.exists(cygwin_dir):
         return cygwin_dir
     elif os.path.exists('C:\\cygwin64'):
@@ -352,6 +353,30 @@ class basegrill(satinstance):
                     modus_operandi = 'resolve'
             elif (modus_operandi == 'resolve'):
                 modus_operandi = None
+
+    def enforce_rule_cell(self, gen, x, y, **kwargs):
+        dependents = [(gen, x, y), (gen+1, x, y), (gen, x-1, y), (gen, x+1, y), (gen, x, y-1),
+                    (gen, x, y+1), (gen, x-1, y-1), (gen, x-1, y+1), (gen, x+1, y-1), (gen, x+1, y+1)]
+        for t in dependents:
+            if t not in self.cells:
+                break
+        else:
+            self.resolve_simple(gen, x, y, **kwargs)
+
+    def resolve_simple(self, gen, x, y, **kwargs):
+            x3_left = self.getx3(gen, x - 1, y)
+            x2_centre = self.getx2(gen, x, y)
+            x3_right = self.getx3(gen, x + 1, y)
+            s = self.variadic_sum(x3_left, x2_centre, x3_right, minimum=2, maximum=4)
+
+            c = self.cells[(gen, x, y)]
+            cc = self.cells[(gen + 1, x, y)]
+            self.newclause(-cc, -s[4])
+            self.newclause(-cc, s[2])
+            self.newclause(-cc, c, s[3])
+            self.newclause(cc, s[4], -s[3])
+
+            self.newclause(cc, -c, s[4], -s[2])
 
     def load_solution(self, solution_file):
         if isinstance(solution_file, basestring):
