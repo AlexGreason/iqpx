@@ -193,9 +193,9 @@ class BeamSearch(ikpxtree):
                             print(val)
                             print(trunc)
                             search.showship(canon)
-                        if len(seen)%16 == 0:
-                            print("found " + str(len(seen)) + " partials")
-                            stdout.flush()
+                        #if len(seen)%16 == 0:
+                        print("found " + str(len(seen)) + " partials")
+                        stdout.flush()
                 else:
                     if isinstance(val[2], tuple):
                         timeout = val[2][3]
@@ -239,15 +239,15 @@ def truncate(partial, partsize):
 
 if __name__ == "__main__":
 
-    njobs = 64
-    homedir = "/iqpx/beamout"
-    velocity = "3c/11o"
+    njobs = 2
+    homedir = "~/documents/iqpx/beamout"
+    velocity = "c/8o"
     direc = "head"
     W = 1
     K = 88
     J = 32
-    beam_width = 128
-    head_num = 128
+    beam_width = 8
+    head_num = 8
     encoding = "split"
     timeout = 1
     defaulti = get_defaulti_scratch(velocity)

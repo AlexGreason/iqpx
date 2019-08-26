@@ -101,7 +101,7 @@ class PartialExtender(basegrill):
                     self.important_variables.add(variable)
                 if v >= (self.full_height - len(initial_rows)):
                     self.bottom_variables.add(variable)
-                    if (u < fullpad + 2) or (u >= self.full_width - fullpad - 2):
+                    if (u < fullpad + 1) or (u >= self.full_width - fullpad - 1):
                         self.bottom_edge_variables.add(variable)
                 #if v >= (self.full_height - 2 * len(initial_rows)):
                 #    if (u < fullpad + 1) or (u >= self.full_width - fullpad - 1):
