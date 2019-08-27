@@ -135,7 +135,7 @@ class PartialExtender(basegrill):
                 xrange(self.full_height)]
         return tuple(rows)
 
-    def exhaust(self, prefix):
+    def exhaust(self, prefix, startrows, step):
         """
         Find all of the possibilities for the next row after the ones
         provided in the problem. Because iglucose is known to have
@@ -165,11 +165,11 @@ class PartialExtender(basegrill):
         sol_fifo = open(sol_fifoname, 'r')
         stages_completed = 0
 
-        for row in xrange(len(self.initial_rows) + 1):
+        for row in xrange(len(self.initial_rows) + 1 + startrows):
             for (gen, x, y) in self.rows[row]:
                 self.enforce_rule_cell(gen, x, y)
         #self.enforce_rule(preprocess=False)
-        nrows = len(self.initial_rows)
+        nrows = len(self.initial_rows) + startrows
         nclauses = len(self.clauses)
 
         try:
@@ -180,22 +180,22 @@ class PartialExtender(basegrill):
             cnf_fifo.write('%s 0\n' % liveclause)
             # Try to extend the partial:
             while running:
-                if nrows > 2 * len(self.initial_rows):
-                    completeassum = []
-                    for v in xrange(nrows - len(self.initial_rows), nrows):
-                        for u in xrange(self.full_width):
-                            completeassum.append(str(-self.varmap[(u, v)]))
-                    assumstr = ' '.join(completeassum)
-                    cnf_fifo.write('a %s 0\n' % assumstr)
-                    cnf_fifo.flush()
-                    sol = sol_fifo.readline()
-                    if sol[:3] == 'SAT':
-                        satisfied = True
-                        stages_completed = 1
-                        # extend enforced region, write out new clauses
-                        print("completed ship in %d rows in %d seconds" % (nrows - len(self.initial_rows), int(clock() - starttime)))
-                        self.showship(self.sol2rows(sol), nrows)
-                        return
+                # if nrows > 2 * len(self.initial_rows):
+                #     completeassum = []
+                #     for v in xrange(nrows - len(self.initial_rows), nrows):
+                #         for u in xrange(self.full_width):
+                #             completeassum.append(str(-self.varmap[(u, v)]))
+                #     assumstr = ' '.join(completeassum)
+                #     cnf_fifo.write('a %s 0\n' % assumstr)
+                #     cnf_fifo.flush()
+                #     sol = sol_fifo.readline()
+                #     if sol[:3] == 'SAT':
+                #         satisfied = True
+                #         stages_completed = 1
+                #         # extend enforced region, write out new clauses
+                #         print("completed ship in %d rows in %d seconds" % (nrows - len(self.initial_rows), int(clock() - starttime)))
+                #         self.showship(self.sol2rows(sol), nrows)
+                #         return
 
                 cnf_fifo.write('a 0\n')
                 cnf_fifo.flush()
@@ -204,12 +204,13 @@ class PartialExtender(basegrill):
                 if sol[:3] == 'SAT':
                     print("solved %d rows in %d seconds" % (nrows - len(self.initial_rows), int(clock() - starttime)))
                     self.showship(self.sol2rows(sol), nrows)
-                    for (gen, x, y) in self.rows[nrows + 1]:
-                        self.enforce_rule_cell(gen, x, y)
+                    for i in range(nrows + 1, nrows + 1 + step):
+                        for (gen, x, y) in self.rows[i]:
+                            self.enforce_rule_cell(gen, x, y)
                     for clause in self.clauses[nclauses:-1]:
                         cnf_fifo.write('%s 0\n' % clause)
                     nclauses = len(self.clauses)
-                    nrows += 1
+                    nrows += step
                 elif sol[:5] == 'INDET':
                     running = False
                 else:
@@ -250,11 +251,11 @@ if __name__ == "__main__":
     velocity = "c/8o"
     direc = "head"
     W = 20
-    K = 1024
+    K = 256
     encoding = "split"
     defaulti = get_defaulti_scratch(velocity)
     partsize = len(defaulti)
     a, b, p = parse_velocity(velocity)
     params = partial_derivatives(a, b, p)
     search = PartialExtender(W, K, defaulti, params)
-    search.exhaust("solver")
+    search.exhaust("solver", 72, 1)
