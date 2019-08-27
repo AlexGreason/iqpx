@@ -14,6 +14,7 @@ import cPickle
 import gzip
 import time
 import math as m
+from time import time as clock
 
 
 class PartialExtender(basegrill):
@@ -142,7 +143,7 @@ class PartialExtender(basegrill):
         so it is not guaranteed to be exhaustive unless the timeout exceeds
         the maximum CPU time used by any iglucose instance.
         """
-
+        starttime = clock()
         sol_fifoname = prefix + '.sol'
         cnf_fifoname = prefix + '.icnf'
 
@@ -164,10 +165,10 @@ class PartialExtender(basegrill):
         sol_fifo = open(sol_fifoname, 'r')
         stages_completed = 0
 
-        #for row in xrange(self.full_height):
-        #    for (gen, x, y) in self.rows[row]:
-        #        self.enforce_rule_cell(gen, x, y)
-        self.enforce_rule(preprocess=False)
+        for row in xrange(len(self.initial_rows) + 1):
+            for (gen, x, y) in self.rows[row]:
+                self.enforce_rule_cell(gen, x, y)
+        #self.enforce_rule(preprocess=False)
         nrows = len(self.initial_rows)
         nclauses = len(self.clauses)
 
@@ -179,126 +180,39 @@ class PartialExtender(basegrill):
             cnf_fifo.write('%s 0\n' % liveclause)
             # Try to extend the partial:
             while running:
+                if nrows > 2 * len(self.initial_rows):
+                    completeassum = []
+                    for v in xrange(nrows - len(self.initial_rows), nrows):
+                        for u in xrange(self.full_width):
+                            completeassum.append(str(-self.varmap[(u, v)]))
+                    assumstr = ' '.join(completeassum)
+                    cnf_fifo.write('a %s 0\n' % assumstr)
+                    cnf_fifo.flush()
+                    sol = sol_fifo.readline()
+                    if sol[:3] == 'SAT':
+                        satisfied = True
+                        stages_completed = 1
+                        # extend enforced region, write out new clauses
+                        print("completed ship in %d rows in %d seconds" % (nrows - len(self.initial_rows), int(clock() - starttime)))
+                        self.showship(self.sol2rows(sol), nrows)
+                        return
+
                 cnf_fifo.write('a 0\n')
                 cnf_fifo.flush()
                 sol = sol_fifo.readline()
+
                 if sol[:3] == 'SAT':
-                    satisfied = True
-                    stages_completed = 1
-                    # extend enforced region, write out new clauses
-                    print("solved %d rows" % (nrows - len(self.initial_rows)))
-                    self.showship(self.sol2rows(sol), self.full_height)
-                    break
-                    #for (gen, x, y) in self.rows[nrows + 1]:
-                    #    self.enforce_rule_cell(gen, x, y)
-                    #for clause in self.clauses[nclauses:-1]:
-                    #    cnf_fifo.write('%s 0\n' % clause)
+                    print("solved %d rows in %d seconds" % (nrows - len(self.initial_rows), int(clock() - starttime)))
+                    self.showship(self.sol2rows(sol), nrows)
+                    for (gen, x, y) in self.rows[nrows + 1]:
+                        self.enforce_rule_cell(gen, x, y)
+                    for clause in self.clauses[nclauses:-1]:
+                        cnf_fifo.write('%s 0\n' % clause)
                     nclauses = len(self.clauses)
                     nrows += 1
                 elif sol[:5] == 'INDET':
                     running = False
                 else:
-                    stages_completed = 2
-                    break
-
-        finally:
-
-            if running:
-                # Kill iglucose by writing rubbish into the pipe:
-                cnf_fifo.write('error\n')
-                cnf_fifo.flush()
-                stages_completed = 2
-
-            # Close and delete the FIFOs:
-            cnf_fifo.close()
-            sol_fifo.close()
-            os.unlink(sol_fifoname)
-            os.unlink(cnf_fifoname)
-
-        return stages_completed, satisfied
-
-    def exhaust_tmp(self, prefix, timeout=600, skip_complete=False):
-        """
-        Find all of the possibilities for the next row after the ones
-        provided in the problem. Because iglucose is known to have
-        wildly varying times, we cut this short if it exceeds the timeout,
-        so it is not guaranteed to be exhaustive unless the timeout exceeds
-        the maximum CPU time used by any iglucose instance.
-        """
-
-        sol_fifoname = prefix + '.sol'
-        cnf_fifoname = prefix + '.icnf'
-
-        if os.path.exists(sol_fifoname):
-            os.unlink(sol_fifoname)
-        if os.path.exists(cnf_fifoname):
-            os.unlink(cnf_fifoname)
-
-        os.mkfifo(sol_fifoname)
-        os.mkfifo(cnf_fifoname)
-
-        # Track whether the solver is still running:
-        running = True
-
-        satisfied = False
-
-        cnf_fifo = open(cnf_fifoname, 'w+')
-        run_iglucose(("-cpu-lim=%d" % int(timeout)), cnf_fifoname, sol_fifoname)
-        sol_fifo = open(sol_fifoname, 'r')
-
-        try:
-            cnf_fifo.write('p inccnf\n')
-            self.write_dimacs(cnf_fifo, write_header=False)
-
-            # Look for complete solutions:
-            if skip_complete:
-                stages_completed = 1
-            else:
-                stages_completed = 0
-                cnf_fifo.write('a %s 0\n' % (' '.join([str(-x) for x in self.bottom_variables])))
-                cnf_fifo.flush()
-                sol = sol_fifo.readline()
-
-                if sol[:3] == 'SAT':
-                    # Completion found:
-                    print("found completion of ", self.initial_rows, "with", self.sol2rows(sol))
-                    self.showship(self.sol2rows(sol), self.full_height)
-                    satisfied = True
-                elif sol[:5] == 'INDET':
-                    running = False
-
-            #cnf_fifo.write('a %s 0\n' % (' '.join([str(-x) for x in self.bottom_edge_variables])))
-            #cnf_fifo.flush()
-
-
-            # Try to extend the partial:
-            while running:
-                cnf_fifo.write('a 0\n')
-                #cnf_fifo.write('a %s 0\n' % (' '.join([str(-x) for x in self.bottom_edge_variables])))
-                cnf_fifo.flush()
-                sol = sol_fifo.readline()
-                if sol[:3] == 'SAT':
-                    satisfied = True
-                    stages_completed = 1
-                    anticlause = []
-                    next_term = 0
-                    v0 = min(list(self.important_variables))
-                    for s in sol.split():
-                        try:
-                            w = int(s)
-                        except ValueError:
-                            continue
-                        if abs(w) in self.important_variables:
-                            anticlause.append(-w)
-                            if w > 0:
-                                next_term |= (1 << (w - v0))
-                    anticlause = ' '.join([str(a) for a in anticlause if (a != 0)])
-                    cnf_fifo.write('%s 0\n' % anticlause)
-                    self.showship(self.sol2rows(sol), self.full_height)
-                elif sol[:5] == 'INDET':
-                    running = False
-                else:
-                    stages_completed = 2
                     break
 
         finally:
@@ -333,15 +247,14 @@ if __name__ == "__main__":
     # possibly make a generator? Outputs new clauses needed for new rows.
     njobs = 64
     homedir = "/iqpx/beamout"
-    velocity = "c/4o"
+    velocity = "c/8o"
     direc = "head"
-    W = 16
-    K = 32
+    W = 20
+    K = 1024
     encoding = "split"
     defaulti = get_defaulti_scratch(velocity)
     partsize = len(defaulti)
     a, b, p = parse_velocity(velocity)
     params = partial_derivatives(a, b, p)
     search = PartialExtender(W, K, defaulti, params)
-    search.enforce_rule()
-    search.exhaust_tmp("solver")
+    search.exhaust("solver")
