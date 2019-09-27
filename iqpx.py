@@ -1175,7 +1175,7 @@ def clmain():
     # args = parser.parse_args()
 
     args = parser.parse_args(
-        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_2", "-v", "c/8o", "-f", "p3k64", "-b", "p3k64"])
+        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/iqpx_c8o_3", "-v", "c/8o", "-f", "p1k64w20"])
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")
