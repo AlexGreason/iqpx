@@ -20,21 +20,18 @@ import subprocess
 import numpy as np
 
 
-class OscillatorSearch(basegrill):
+class PredecessorSearch(basegrill):
 
-    def __init__(self, g, m, n, padding, forcecorner=False, forcerim=False, forcephoenix=False,
-                 periodic=False, forcefull=False, forcecenter=False, forcecenterchange=False, forceoppositeedge=False):
-        super(OscillatorSearch, self).__init__()
-        print("g", g, "m", m, "n", n, "padding", padding, "forcerim", forcerim,
-              "forcephoenix", forcephoenix, "periodic", periodic, "forcefull", forcefull, "forcecenter", forcecenter,
-              "forcecenterchange", forcecenterchange, "forcecorner", forcecorner, "forceoppositeedge", forceoppositeedge)
-        self.g = g
+    def __init__(self, m, n, padding, setcells, forcerim=True, stilllife=False):
+        super(PredecessorSearch, self).__init__()
+        print("m", m, "n", n, "padding", padding)
+        self.g = 3 if stilllife else 2
         self.m = m
         self.n = n
         self.padding = padding
         self.important_variables = set()
 
-        for t in range(g):
+        for t in range(self.g):
             for x in range(m):
                 for y in range(n):
                     state = UNKNOWN_VARIABLE_STATE
@@ -43,37 +40,14 @@ class OscillatorSearch(basegrill):
                             state = DEAD_VARIABLE_STATE
                         if y < padding or abs(y - n + 1) < padding:
                             state = DEAD_VARIABLE_STATE
-                    if forcecorner:
-                        if x < 2 or y < 2:
-                            state = DEAD_VARIABLE_STATE
-                    if forceoppositeedge:
-                        if x < padding or abs(x - m + 1) < padding:
-                            state = DEAD_VARIABLE_STATE
-                    if x == m//2 and y == n//2 and t == 0 and forcecenter:
-                        state = LIVE_VARIABLE_STATE
-                    if x == m//2 and  y == n//2 and t == 2 and forcecenterchange:
-                        state = DEAD_VARIABLE_STATE
-
                     variable = self.apply_state_to_variable(state)
                     self.relate(variable, (t, x, y))
                     if t == 0 and x > padding and abs(x - self.m + 1) > padding and y > padding and abs(y - self.n + 1) > padding:
                         self.important_variables.add(variable)
-                    else:
-                       if forcephoenix and t > 0 and state == UNKNOWN_VARIABLE_STATE:
-                           self.implies(self.cells[(t - 1, x, y)], -variable)
-                    if t == g - 1:
-                        self.relate(variable, (0, x, y))
-            for x in range(m):
+        if stilllife:
+            for x in range(m):  # forces gen 1 to be a still life
                 for y in range(n):
-                    if periodic:
-                        if x < padding:
-                            self.identify(self.cells[(t, x, y)], self.cells[(t, x + m - padding, y)])
-                        if y < padding:
-                            self.identify(self.cells[(t, x, y)], self.cells[(t, x, y + m - padding)])
-        for t in range(g):
-            if (forcefull and t != 0 and (g - 1) % t == 0 and t != (g - 1) and t != 1) or (t == 1 and not forcephoenix):
-                print(t, 0, "forced different")
-                self.forcedifferent(t, 0)
+                    self.identify(self.cells[(1, x, y)], self.cells[(2, x, y)])
         self.enforce_rule()
         print(self.nvars, "variables", len(self.clauses), "clauses")
 
@@ -206,7 +180,7 @@ class OscillatorSearch(basegrill):
 
 if __name__ == "__main__":
     starttime = time.time()
-    a = OscillatorSearch(5, 42, 23, 2, forcecorner=True, forcerim=False, forcephoenix=True, forcefull=True,
+    a = OscillatorSearch(5, 40, 22, 2, forcecorner=True, forcerim=False, forcephoenix=True, forcefull=True,
                          forcecenter=True, periodic=False, forcecenterchange=True, forceoppositeedge=True)
     #hang on, when I force the central cell to dead on gen 2, does that override the life rules?
     a.exhaust("test%d" % os.getpid(), "test%d" % os.getpid(), multiprocessing.Queue(), timeout=10000000)
