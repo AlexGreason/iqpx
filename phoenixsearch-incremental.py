@@ -22,13 +22,18 @@ import numpy as np
 
 class OscillatorSearch(basegrill):
 
-    def __init__(self, g, m, n, padding, forcecorner=False, forcerim=False, forcephoenix=False,
-                 periodic=False, forcefull=False, forcecenter=False, forcecenterchange=False, forceoppositeedge=False,
-                 p2rim=False, p2edges=False, p2edge=False, xperiodic=True, topedge=False):
+    def __init__(self, g, m, n, padding, important=None, fullby=None, setcells=None, forcecorner=False, forcerim=False, forcephoenix=False,
+                 periodic=False, forcefull=False, forcecenter=False, forcecenterchange=False, forceoppositeedge=False):
         super(OscillatorSearch, self).__init__()
-        print("g", g, "m", m, "n", n, "padding", padding, "forcerim", forcerim,
+        print("g", g, "m", m, "n", n, "padding", padding, "important", important, "fullby", fullby, "forcerim", forcerim,
               "forcephoenix", forcephoenix, "periodic", periodic, "forcefull", forcefull, "forcecenter", forcecenter,
               "forcecenterchange", forcecenterchange, "forcecorner", forcecorner, "forceoppositeedge", forceoppositeedge)
+        if setcells is None:
+            setcells = {}
+        if important is None:
+            important = n
+        if fullby is None:
+            fullby = n
         self.g = g
         self.m = m
         self.n = n
@@ -40,57 +45,42 @@ class OscillatorSearch(basegrill):
                 for y in range(n):
                     state = UNKNOWN_VARIABLE_STATE
                     if forcerim:
-                        if x < padding or abs(x - m + 1) < padding:
+                        if x < 2 or abs(x - m + 1) < 2:
                             state = DEAD_VARIABLE_STATE
-                        if y < padding or abs(y - n + 1) < padding:
+                        if y < 2 or abs(y - n + 1) < 2:
                             state = DEAD_VARIABLE_STATE
-
                     if forcecorner:
                         if x < 2 or y < 2:
                             state = DEAD_VARIABLE_STATE
                     if forceoppositeedge:
-                        if x < padding or abs(x - m + 1) < padding:
+                        if x < 2 or abs(x - m + 1) < 2:
                             state = DEAD_VARIABLE_STATE
                     if x == m//2 and y == n//2 and t == 0 and forcecenter:
                         state = LIVE_VARIABLE_STATE
                     if x == m//2 and  y == n//2 and t == 2 and forcecenterchange:
                         state = DEAD_VARIABLE_STATE
-                    if topedge:
-                        if x < 2:
-                            state = DEAD_VARIABLE_STATE
-
+                    if (t, x, y) in setcells:
+                        state = setcells[(t, x, y)]
                     variable = self.apply_state_to_variable(state)
                     self.relate(variable, (t, x, y))
-                    if t == 0 and state == UNKNOWN_VARIABLE_STATE:
+                    if t == 0 and y < important:
                         self.important_variables.add(variable)
                     else:
                        if forcephoenix and t > 0 and state == UNKNOWN_VARIABLE_STATE:
                            self.implies(self.cells[(t - 1, x, y)], -variable)
                     if t == g - 1:
                         self.relate(variable, (0, x, y))
-                    if p2rim and t > 1:
-                        if x < padding or abs(x - m + 1) < padding:
-                            self.identify(variable, self.cells[(t - 2, x, y)])
-                        if y < padding or abs(y - n + 1) < padding:
-                            self.identify(variable, self.cells[(t-2, x, y)])
-                    if p2edges and t > 1:
-                        if x < padding or abs(x - m + 1) < padding:
-                            self.identify(variable, self.cells[(t - 2, x, y)])
-                    if p2edge and t > 1:
-                        if y < padding:
-                            self.identify(variable, self.cells[(t - 2, x, y)])
-
             for x in range(m):
                 for y in range(n):
                     if periodic:
-                        if x < padding and xperiodic:
+                        if x < padding:
                             self.identify(self.cells[(t, x, y)], self.cells[(t, x + m - padding, y)])
                         if y < padding:
-                            self.identify(self.cells[(t, x, y)], self.cells[(t, x, y + n - padding)])
+                            self.identify(self.cells[(t, x, y)], self.cells[(t, x, y + m - padding)])
         for t in range(g):
             if (forcefull and t != 0 and (g - 1) % t == 0 and t != (g - 1) and t != 1) or (t == 1 and not forcephoenix):
                 print(t, 0, "forced different")
-                self.forcedifferent(t, 0)
+                self.forcedifferent(t, 0, fullby)
         self.enforce_rule()
         print(self.nvars, "variables", len(self.clauses), "clauses")
 
@@ -102,7 +92,7 @@ class OscillatorSearch(basegrill):
         self.newclause(-var1, -var2, -x)
         return x
 
-    def forcedifferent(self, gen1, gen2):
+    def forcedifferent(self, gen1, gen2, fullby):
         firstgen = []
         secondgen = []
         for c in self.cells:
@@ -114,7 +104,7 @@ class OscillatorSearch(basegrill):
         padding = self.padding
         for c in firstgen:
             if c in secondgen:
-                if c[0] > padding and abs(c[0] - self.m + 1) > padding and c[1] > padding and abs(c[1] - self.n + 1) > padding:
+                if c[0] > padding and abs(c[0] - self.m + 1) > padding and c[1] > padding and abs(c[1] - self.n + 1) > padding and c[1] < fullby:
                     var1 = self.cells[(gen1, c[0], c[1])]
                     var2 = self.cells[(gen2, c[0], c[1])]
                     diffs.append(self.xor(var1, var2))
@@ -136,8 +126,7 @@ class OscillatorSearch(basegrill):
                     char = "*"
                 sys.stdout.write(char)
             sys.stdout.write("\n")
-        sys.stdout.write("\n")
-
+        sys.stdout.write("\n\n")
 
 
 
@@ -221,13 +210,64 @@ class OscillatorSearch(basegrill):
         return stages_completed, satisfied
 
 
+def readsol(solstr, maxy = 999, xoff = 0):
+    rows = solstr.split("\n")
+    result = {}
+    states = {".": DEAD_VARIABLE_STATE, "*": LIVE_VARIABLE_STATE}
+    t = 0
+    x = xoff
+    for r in rows:
+        if len(r) < 4:
+            continue
+        y = 0
+        for c in r:
+            if c not in states or y >= maxy:
+                continue
+            result[(t, x, y)] = states[c]
+            y += 1
+        x += 1
+    return result
+
+
 if __name__ == "__main__":
     starttime = time.time()
-    print("pid", os.getpid())
-    a = OscillatorSearch(5, 20, 17, 7, forcecorner=False, forcerim=False, forcephoenix=True, forcefull=True,
-                         forcecenter=False, periodic=True, forcecenterchange=False, forceoppositeedge=False, p2rim=False,
-                         p2edges=True, p2edge=False, xperiodic=False, topedge=False)
-    #hang on, when I force the central cell to dead on gen 2, does that override the life rules?
+    solstr = """
+.................................
+.................................
+...............*.................
+.............*.*.................
+.................*...............
+*..........**.................*.*
+*.*...*..........**.....*.......*
+......*.*...*.........*.*...*.*..
+...**.........*.*.........*...*.*
+.........**...*.....**......*....
+..**........................*...*
+..........*.........*...........*
+**..........*.*.*...........*.*..
+..........*.....*.*.*.....*.*.*..
+..*...*.*.*.*.....*.....*.*......
+....*...*...........*.*.*.....*..
+....*.......*.....*..............
+*.*..........................*.**
+*....*......**...**........*.....
+.....*.*.................*.*...**
+.*.*.....*.*.......*.............
+.*.......*.............**........
+....*.......*......**.........*.*
+....*.*.....*.*.........*.....*..
+*.*.....*.*.....*.*.......*.*....
+*.......*.......*.........*.....*
+.................................
+.................................
+    """
+    maxy = 0
+    xoff = 0
+    setcells = readsol(solstr, maxy = maxy, xoff = xoff)
+    print("maxy", maxy, "xoff", xoff)
+    a = OscillatorSearch(5, 28, 42, 2, setcells=setcells, forcecorner=False, forcerim=False, forcephoenix=True, forcefull=True,
+                         forcecenter=True, periodic=False, forcecenterchange=True, forceoppositeedge=True)
+    #30-17 with fullby 8 returned unsat
     a.exhaust("test%d" % os.getpid(), "test%d" % os.getpid(), multiprocessing.Queue(), timeout=10000000)
     endtime = time.time()
     print("finished in %2.2f seconds" % (endtime - starttime))

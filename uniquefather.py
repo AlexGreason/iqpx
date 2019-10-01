@@ -22,7 +22,7 @@ import numpy as np
 
 class PredecessorSearch(basegrill):
 
-    def __init__(self, m, n, padding, setcells, forcerim=True, stilllife=False):
+    def __init__(self, m, n, padding, setcells, forcerim=True, stilllife=False, allunknown=False):
         super(PredecessorSearch, self).__init__()
         print("m", m, "n", n, "padding", padding)
         self.g = 3 if stilllife else 2
@@ -36,13 +36,15 @@ class PredecessorSearch(basegrill):
                 for y in range(n):
                     state = UNKNOWN_VARIABLE_STATE
                     if forcerim:
-                        if x < padding or abs(x - m + 1) < padding:
+                        if x < 2 or abs(x - m + 1) < 2:
                             state = DEAD_VARIABLE_STATE
-                        if y < padding or abs(y - n + 1) < padding:
+                        if y < 2 or abs(y - n + 1) < 2:
                             state = DEAD_VARIABLE_STATE
+                    if t == 1 and (x, y) in setcells:
+                        state = setcells[(x, y)]
                     variable = self.apply_state_to_variable(state)
                     self.relate(variable, (t, x, y))
-                    if t == 0 and x > padding and abs(x - self.m + 1) > padding and y > padding and abs(y - self.n + 1) > padding:
+                    if t == 0 and ((x, y) in setcells) or (allunknown and state == UNKNOWN_VARIABLE_STATE):
                         self.important_variables.add(variable)
         if stilllife:
             for x in range(m):  # forces gen 1 to be a still life
@@ -77,8 +79,7 @@ class PredecessorSearch(basegrill):
                     diffs.append(self.xor(var1, var2))
         self.newclause(*diffs)
 
-
-    def printsol(self, sol):
+    def getvariables(self, sol):
         variables = {}
         for s in sol.split():
             try:
@@ -86,19 +87,29 @@ class PredecessorSearch(basegrill):
                 variables[abs(w)] = (1 if (w > 0) else 0)
             except ValueError:
                 continue
+        return variables
+
+    def printsol(self, sol, gen=0):
+        variables = self.getvariables(sol)
         for x in range(self.m):
             for y in range(self.n):
                 char = "."
-                if variables[self.n * x + y + 1] == 1:
+                if variables[self.n * x + y + 1 + gen * self.n * self.m] == 1:
                     char = "*"
                 sys.stdout.write(char)
             sys.stdout.write("\n")
         sys.stdout.write("\n")
 
+    def getpop(self, sol, gen):
+        pop = 0
+        variables = self.getvariables(sol)
+        for x in range(self.m):
+            for y in range(self.n):
+                if variables[self.n * x + y + 1 + gen * self.n * self.m] == 1:
+                    pop += 1
+        return pop
 
-
-
-    def exhaust(self, name, prefix, outqueue, timeout=600, skip_complete=False):
+    def exhaust(self, name, prefix, timeout=600, skip_complete=False):
         """
         Find all of the possibilities for the next row after the ones
         provided in the problem. Because iglucose is known to have
@@ -122,7 +133,8 @@ class PredecessorSearch(basegrill):
         running = True
 
         satisfied = False
-
+        npreds = 0
+        minpop = 9999
         cnf_fifo = open(cnf_fifoname, 'w+')
         run_iglucose(("-cpu-lim=%d" % int(timeout)), cnf_fifoname, sol_fifoname)
         sol_fifo = open(sol_fifoname, 'r')
@@ -153,7 +165,13 @@ class PredecessorSearch(basegrill):
                                 next_term |= (1 << (w - v0))
                     anticlause = ' '.join([str(a) for a in anticlause if (a != 0)])
                     cnf_fifo.write('%s 0\n' % anticlause)
-                    self.printsol(sol)
+                    npreds += 1
+                    #outqueue.put(sol)
+                    #pop = self.getpop(sol, 1)
+                    #if pop < minpop:
+                    #    minpop = pop
+                    #    print("population", pop)
+                    #    self.printsol(sol)
                 elif sol[:5] == 'INDET':
                     running = False
                 else:
@@ -175,15 +193,79 @@ class PredecessorSearch(basegrill):
             os.unlink(sol_fifoname)
             os.unlink(cnf_fifoname)
 
-        return stages_completed, satisfied
+        return npreds
 
+
+def readsol(solstr, yoff = 0, xoff = 0):
+    rows = solstr.split("\n")
+    result = {}
+    states = {".": DEAD_VARIABLE_STATE, "*": LIVE_VARIABLE_STATE}
+    maxx = 0
+    maxy = 0
+    x = xoff
+    for r in rows:
+        r = r.replace('\n', '').replace(' ','')
+        if len(r) == 0:
+            continue
+        y = yoff
+        for c in r:
+            if c not in states:
+                continue
+            result[(x, y)] = states[c]
+            y += 1
+        x += 1
+        maxx = max(x, maxx)
+        maxy = max(y, maxy)
+    print(maxx, maxy)
+    return result, maxx - xoff, maxy - yoff
+
+
+def inbox(bbox, coords):
+    if bbox[0] > coords[0] or bbox[1] < coords[0]:
+        return False
+    if bbox[2] > coords[1] or bbox[3] < coords[1]:
+        return False
+    return True
+
+
+def updatelimits(bbox, coords):
+    bbox[0] = min(bbox[0], coords[0])
+    bbox[1] = max(bbox[1], coords[0])
+    bbox[2] = min(bbox[2], coords[1])
+    bbox[3] = max(bbox[3], coords[1])
+    return bbox
+
+
+def spiralcoords():
+    limits = np.zeros(4)  # minx, maxx, miny, maxy
+    coords = np.zeros(2)  # x, y
+    directions = [(1, 0), (0, -1), (-1, 0), (0, 1)]
+    directions = [np.array(x) for x in directions]
+    dir_index = 0
+    direction = directions[dir_index]
+    while True:
+        yield coords
+        coords += direction
+        if not inbox(limits, coords):
+            limits = updatelimits(limits, coords)
+            dir_index = (dir_index + 1) % len(directions)
+            direction = directions[dir_index]
 
 if __name__ == "__main__":
     starttime = time.time()
-    a = OscillatorSearch(5, 40, 22, 2, forcecorner=True, forcerim=False, forcephoenix=True, forcefull=True,
-                         forcecenter=True, periodic=False, forcecenterchange=True, forceoppositeedge=True)
+    solstr = """
+    ****
+    ....
+    ***
+    """
+    pad = 5
+    yoff = pad
+    xoff = pad
+    setcells, x, y = readsol(solstr, yoff=yoff, xoff=xoff)
+    a = PredecessorSearch(x + 2 * pad, y + 2 * pad, pad, setcells, stilllife=True, allunknown=False)
     #hang on, when I force the central cell to dead on gen 2, does that override the life rules?
-    a.exhaust("test%d" % os.getpid(), "test%d" % os.getpid(), multiprocessing.Queue(), timeout=10000000)
+    npreds = a.exhaust("test%d" % os.getpid(), "test%d" % os.getpid(), timeout=10000000)
+    print(npreds, "predecessors")
     endtime = time.time()
     print("finished in %2.2f seconds" % (endtime - starttime))
 
