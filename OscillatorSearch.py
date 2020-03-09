@@ -24,7 +24,7 @@ class OscillatorSearch(basegrill):
 
     def __init__(self, g, m, n, padding, forcecorner=False, forcerim=False, forcephoenix=False,
                  periodic=False, forcefull=False, forcecenter=False, forcecenterchange=False, forceoppositeedge=False,
-                 p2rim=False, p2edges=False, p2edge=False, xperiodic=True, topedge=False):
+                 p1rim=False, p1edges=False, p2edge=False, xperiodic=True, topedge=False):
         super(OscillatorSearch, self).__init__()
         print("g", g, "m", m, "n", n, "padding", padding, "forcerim", forcerim,
               "forcephoenix", forcephoenix, "periodic", periodic, "forcefull", forcefull, "forcecenter", forcecenter,
@@ -40,9 +40,9 @@ class OscillatorSearch(basegrill):
                 for y in range(n):
                     state = UNKNOWN_VARIABLE_STATE
                     if forcerim:
-                        if x < padding or abs(x - m + 1) < padding:
+                        if x < 2 or abs(x - m + 1) < 2:
                             state = DEAD_VARIABLE_STATE
-                        if y < padding or abs(y - n + 1) < padding:
+                        if y < 2 or abs(y - n + 1) < 2:
                             state = DEAD_VARIABLE_STATE
 
                     if forcecorner:
@@ -68,14 +68,14 @@ class OscillatorSearch(basegrill):
                            self.implies(self.cells[(t - 1, x, y)], -variable)
                     if t == g - 1:
                         self.relate(variable, (0, x, y))
-                    if p2rim and t > 1:
+                    if p1rim and t > 1:
                         if x < padding or abs(x - m + 1) < padding:
-                            self.identify(variable, self.cells[(t - 2, x, y)])
+                            self.identify(variable, self.cells[(t - 1, x, y)])
                         if y < padding or abs(y - n + 1) < padding:
-                            self.identify(variable, self.cells[(t-2, x, y)])
-                    if p2edges and t > 1:
+                            self.identify(variable, self.cells[(t-1, x, y)])
+                    if p1edges and t > 1:
                         if x < padding or abs(x - m + 1) < padding:
-                            self.identify(variable, self.cells[(t - 2, x, y)])
+                            self.identify(variable, self.cells[(t - 1, x, y)])
                     if p2edge and t > 1:
                         if y < padding:
                             self.identify(variable, self.cells[(t - 2, x, y)])
@@ -84,7 +84,7 @@ class OscillatorSearch(basegrill):
                 for y in range(n):
                     if periodic:
                         if x < padding and xperiodic:
-                            self.identify(self.cells[(t, x, y)], self.cells[(t, x + m - padding, (y + 1) % n)])
+                            self.identify(self.cells[(t, x, y)], self.cells[(t, x + m - padding, y)])
                         if y < padding:
                             self.identify(self.cells[(t, x, y)], self.cells[(t, x, y + n - padding)])
         for t in range(g):
@@ -221,16 +221,14 @@ class OscillatorSearch(basegrill):
         return stages_completed, satisfied
 
 
-
-
 if __name__ == "__main__":
     starttime = time.time()
     print("pid", os.getpid())
-    #n = 17
-    a = OscillatorSearch(5, 14, 12, 2, forcecorner=False, forcerim=False, forcephoenix=True, forcefull=True,
-                         forcecenter=True, periodic=False, forcecenterchange=True, forceoppositeedge=True, p2rim=False,
-                         p2edges=False, p2edge=False, xperiodic=False, topedge=True)
-    #hang on, when I force the central cell to dead on gen 2, does that override the life rules?
+    n = 10
+    a = OscillatorSearch(9, n, n, 3, forcecorner=False, forcerim=False, forcephoenix=False, forcefull=True,
+                         forcecenter=False, periodic=False, forcecenterchange=False, forceoppositeedge=False, p1rim=True,
+                         p1edges=False, p2edge=False, xperiodic=False, topedge=False)
+    # hang on, when I force the central cell to dead on gen 2, does that override the life rules? no
     a.exhaust("test%d" % os.getpid(), "test%d" % os.getpid(), multiprocessing.Queue(), timeout=10000000)
     endtime = time.time()
     print("finished in %2.2f seconds" % (endtime - starttime))

@@ -2,6 +2,7 @@ import multiprocessing
 import random
 import argparse
 import signal
+import cPickle
 import gzip
 import time
 import sys
@@ -21,18 +22,16 @@ import numpy as np
 
 class PredecessorSearch(basegrill):
 
-    def __init__(self, m, n, padding, setcells, forcerim=True, stilllife=False, allunknown=False, rewindby=1):
+    def __init__(self, g, m, n, padding, setcells, forcerim=True, allunknown=False, oscillator=False, forcefull=True, forcephoenix=False):
         super(PredecessorSearch, self).__init__()
-        print("m", m, "n", n, "padding", padding)
-        self.g = 1 + rewindby + (1 if stilllife else 0)
+        print("g", g, "m", m, "n", n, "padding", padding)
+        self.g = g
         self.m = m
         self.n = n
         self.padding = padding
         self.important_variables = set()
-        self.gens = {}
 
         for t in range(self.g):
-            self.gens[t] = []
             for x in range(m):
                 for y in range(n):
                     state = UNKNOWN_VARIABLE_STATE
@@ -41,21 +40,23 @@ class PredecessorSearch(basegrill):
                             state = DEAD_VARIABLE_STATE
                         if y < 2 or abs(y - n + 1) < 2:
                             state = DEAD_VARIABLE_STATE
-                        # if t == 0 and (y == 2 or abs(y - n + 1) == 2):
-                        #     state = DEAD_VARIABLE_STATE
-                        # if t == 0 and (x == 2 or abs(x - m + 1) == 2 or x == 3):
-                        #     state = DEAD_VARIABLE_STATE
-                    if t == self.g-1-(1 if stilllife else 0) and (x, y) in setcells:
+                    if t == 0 and (x, y) in setcells:
                         state = setcells[(x, y)]
                     variable = self.apply_state_to_variable(state)
-                    self.gens[t].append(variable)
                     self.relate(variable, (t, x, y))
                     if t == 0 and ((x, y) in setcells) or (allunknown and state == UNKNOWN_VARIABLE_STATE):
                         self.important_variables.add(variable)
-        if stilllife:
-            for x in range(m):  # forces gen g-2 to be a still life
+                    if forcephoenix and t > 0 :
+                        self.implies(self.cells[(t - 1, x, y)], -variable)
+        if oscillator:
+            for x in range(m):
                 for y in range(n):
-                    self.identify(self.cells[(self.g-2, x, y)], self.cells[(self.g-1, x, y)])
+                    self.identify(self.cells[(0, x, y)], self.cells[(g-1, x, y)])
+        if forcefull:
+            for t in range(1, self.g - 1):
+                if (g-1)%t == 0:
+                    print("generations", 0, t, "forced to differ")
+                    self.forcedifferent(0, t)
         self.enforce_rule()
         print(self.nvars, "variables", len(self.clauses), "clauses")
 
@@ -83,7 +84,11 @@ class PredecessorSearch(basegrill):
                     var1 = self.cells[(gen1, c[0], c[1])]
                     var2 = self.cells[(gen2, c[0], c[1])]
                     diffs.append(self.xor(var1, var2))
-        self.newclause(*diffs)
+        if len(diffs) > 0:
+            self.newclause(*diffs)
+
+    def notequals(self, var1, var2):
+        self.newclause(self.xor(var1, var2))
 
     def getvariables(self, sol):
         variables = {}
@@ -172,20 +177,15 @@ class PredecessorSearch(basegrill):
                     anticlause = ' '.join([str(a) for a in anticlause if (a != 0)])
                     cnf_fifo.write('%s 0\n' % anticlause)
                     npreds += 1
-
                     if firstsol is None:
                         firstsol = sol
                     if findany:
                         return npreds, firstsol
                     #outqueue.put(sol)
-                    pop = self.getpop(sol, 0)
-                    if npreds % 100 == 0:
-                        print("npreds", npreds, "lastpop", pop)
+                    pop = self.getpop(sol, 1)
                     if pop < minpop:
                         minpop = pop
                         minsol = sol
-                        print("new record pop", minpop)
-                        self.printsol(minsol)
                 elif sol[:5] == 'INDET':
                     running = False
                 else:
@@ -274,7 +274,7 @@ def getbbox(coords):
 
 def getpositivecoords(n):
     spiral = spiralcoords()
-    coordsarr = [next(spiral).copy() for i in range(n)]
+    coordsarr = [spiral.next().copy() for i in range(n)]
     bbox = getbbox(coordsarr)
     mins = np.array([bbox[0], bbox[2]], dtype="int32")
     maxs = np.array([bbox[1], bbox[3]], dtype="int32")
@@ -292,43 +292,31 @@ def getcells(values, pad):
             state = LIVE_VARIABLE_STATE
         coords = tuple(coordsarr[i] + np.array([pad, pad]))
         result[coords] = state
-    return result, maxs[0], maxs[1]
+    return result, maxs[0] + 1, maxs[1] + 1
 
 
-def search(valsarr, reportpreds=False, findany=False, pad=4):
-    if reportpreds:
+def search(valsarr, findany=False, pad=4, period=1):
+    order = [[0], [1]]
+
+    for v in order:
+        valsarr += v
         setcells, x, y = getcells(valsarr, pad)
-        a = PredecessorSearch(x + 2 * pad, y + 2 * pad, pad, setcells, stilllife=True, allunknown=False)
+        a = PredecessorSearch(period + 1, x + 2 * pad, y + 2 * pad, pad, setcells, oscillator=True, allunknown=False,
+                              forcerim=False, forcephoenix=False)
         npreds, pred = a.exhaust("test%d" % os.getpid(), "test%d" % os.getpid(), timeout=10000000, findany=findany)
-        print(npreds if not findany else ("some" if npreds else "no"), "predecessors", )
+        print("some" if npreds else "no", "extensions")
         if pred is not None:
             a.printsol(pred)
-        return npreds
-    predcounts = []
-    for v in range(2):
-        valsarr += [v]
-        predcounts += [search(valsarr, reportpreds=True, findany=True, pad=pad)]
-        valsarr = valsarr[:-1]
-    if min(predcounts) > 0:
-        predcounts = []
-        for v in range(2):
-            valsarr += [v]
-            predcounts += [search(valsarr, reportpreds=True, findany=False, pad=pad)]
-            valsarr = valsarr[:-1]
-    if predcounts[0] > predcounts[1]:
-        order = [1, 0]
-    else:
-        order = [0, 1]
-    if min(predcounts) != 0 and predcounts[0] != predcounts[1]:
-        print("actual choice!", predcounts)
-    print("advancing to step", len(valsarr) + 1)
-    for v in order:
-        if predcounts[v] == 0:
+        if npreds == 0:
+            for i in v:
+                valsarr.pop()
             continue
-        valsarr += [v]
-        search(valsarr, reportpreds=False, pad=pad)
-        valsarr = valsarr[:-1]
-    print("backtracking to step", len(valsarr) - 1)
+        print(valsarr)
+        print("advancing to step", len(valsarr) + len(v), "with", v)
+        search(valsarr,  pad=pad, period=period)
+        for i in v:
+            valsarr.pop()
+    print("backtracking to step", len(valsarr))
     return 0
 
 
@@ -337,8 +325,8 @@ def search(valsarr, reportpreds=False, findany=False, pad=4):
 
 if __name__ == "__main__":
     starttime = time.time()
-    valsarr = [1]
-    search(valsarr, reportpreds=False, pad=9)
+    valsarr = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+    search(valsarr, pad=5, period=2)
     # TODO: instead of using raw "number of predecessors," use "minimum difference between first and last":
     # number of cells (in important_variables) that take on multiple values across the predecessors
     # at least, I think that's what they meant

@@ -5,6 +5,7 @@ import signal
 import cPickle
 import gzip
 import time
+import ctypes
 
 from grills import *
 from parserle import rle2bin
@@ -90,7 +91,7 @@ class PartialExtender(basegrill):
                     self.important_variables.add(variable)
                 if v >= (self.full_height - len(initial_rows)):
                     self.bottom_variables.add(variable)
-        self.enforce_symmetry()
+        #self.enforce_symmetry()
 
     def enforce_symmetry(self):
         for (gen, x, y) in self.cells:
@@ -260,7 +261,7 @@ class ikpxtree(object):
     will be precisely one ikpxtree; in a MITM search there are two.
     """
 
-    def __init__(self, name, worker_queue, i6tuple, search_width, lookahead, jumpahead):
+    def __init__(self, name, worker_queue, i6tuple, search_width, lookahead, jumpahead, deepening=None):
 
         self.name = name
         self.lastmm = 0
@@ -273,6 +274,9 @@ class ikpxtree(object):
         self.jumpahead = jumpahead
         self.search_width = search_width
         self.hist = Counter()
+        self.deepening = deepening
+        self.lastwqs = [0]*20
+        self.adadelay = 0
 
         self.last_backup_saved = 0
         self.starttime = time.time()
@@ -403,6 +407,7 @@ class ikpxtree(object):
         stdout.flush()
         self.rundict()
         print('...adaptive widening completed.')
+        self.deepening.value = 64
         stdout.flush()
 
     def addpred(self, fsegment, isegment, w):
@@ -491,14 +496,22 @@ class ikpxtree(object):
 
                 self.enqueue_work(fsegment, w)
 
+                wqs = worker_queue.qsize()
+                # with self.deepening.get_lock():
+                #     if wqs > 5000 and wqs > self.lastwqs[0] and self.adadelay < 0:
+                #         self.deepening.value += 1
+                #         self.adadelay = 100
+                #         print "increased deepening to " + str(self.deepening.value) + " at queue size " + str(wqs)
+                #     if wqs < 4000 and self.deepening.value > 20 and wqs < self.lastwqs[0] and self.adadelay < 0:
+                #         self.adadelay = 100
+                #         self.deepening.value -= 1
+                #         print "decreased deepening to " + str(self.deepening.value) + " at queue size " + str(wqs)
+                # self.adadelay -= 1
+                # self.lastmm = wqs // 1000000
+                # self.lastwqs = self.lastwqs[1:] + [wqs]
+
                 if len(self.preds) % 100 == 0:
-                    try:
-                        wqs = worker_queue.qsize()
-                        queue_size = ' (%s queue size ~= %d)' % (self.name, wqs)
-                        self.lastmm = wqs // 1000000
-                    except NotImplementedError:
-                        # Mac OS X
-                        queue_size = ''
+                    queue_size = ' (%s queue size ~= %d)' % (self.name, wqs)
                     print("%d %s edges traversed%s." % (len(self.preds), self.name, queue_size))
                     stdout.flush()
 
@@ -567,7 +580,7 @@ def tupleToBytes(data):
 def bytesToTuple(data):
     return tuple(np.frombuffer(data, dtype="uint32"))
 
-def master_function(master_queue, backup_directory, argdict, params, cmd):
+def master_function(master_queue, backup_directory, argdict, params, cmd, deepening):
     """
     The function executed by the master thread. It simply pops items from the
     master_queue, reads the name of the ikpxtree to which they belong ('head'
@@ -619,7 +632,7 @@ def master_function(master_queue, backup_directory, argdict, params, cmd):
 
     # Create search trees:
     for (name, args) in argdict.iteritems():
-        trees[name] = ikpxtree(name, *args)
+        trees[name] = ikpxtree(name, *args, deepening=deepening)
         trees[name].load_state(backup_directory)
 
     # Determine whether running a regular or MITM search:
@@ -661,7 +674,7 @@ def master_function(master_queue, backup_directory, argdict, params, cmd):
 
 
 def worker_function(name, master_queue, worker_queue, worker_root,
-                    params, diligence, timeout, encoding):
+                    params, diligence, timeout, encoding, deepening):
     """
     The function executed by the worker threads. This receives work from
     the master thread, encodes it as a SAT problem, and delegates it down to
@@ -707,17 +720,32 @@ def worker_function(name, master_queue, worker_queue, worker_root,
         min_W = max(min_W, 2)
 
         # We enumerate widths backwards so we can eliminate impossible tasks:
-        widths = list(xrange(min_W, max_W + 1, 2))[::-1]
+        widths = list(xrange(min_W, max_W + 1))[::-1]
+        unsats = set([])
 
         for W in widths:
-            i = (W - w) // 2
-            rows = tuple([(r << i) for r in fsegment])
-            satisfied = single_work(rows, w, W, K)
 
-            if not satisfied:
-                break
+            if (w == 0):
+                # Zero tuple:
+                offsets = [0]
+            else:
+                # Try different offsets:
+                offsets = list(xrange(W - w + 1))
 
-        return fsegment, max_W
+            for i in offsets:
+                j = W - w - i
+
+                if ((i+1, j) in unsats) or ((i, j+1) in unsats):
+                    satisfied = False
+                else:
+                    rows = tuple([(r << i) for r in fsegment])
+                    satisfied = single_work(rows, w, W, K)
+
+                if not satisfied:
+                    unsats.add((i, j))
+
+        return (fsegment, max_W)
+
 
     def perform_work(item):
         if len(item) == 4:
@@ -729,14 +757,34 @@ def worker_function(name, master_queue, worker_queue, worker_root,
             return multiple_work(*item)
 
     try:
+        lastwqs = [0]*100
+        adadelay = 0
+        processed = -1
         while True:
+            processed += 1
             item = worker_queue.get()
+            wqs = worker_queue.qsize()
+            if wqs > 5000 and wqs > lastwqs[0] and adadelay <= 0:
+                adadelay = 100
+                with deepening.get_lock():
+                    deepening.value += 3
+                    print "increased deepening to " + str(deepening.value) + " at queue size " + str(wqs)
+            if wqs < 5000 and deepening.value > 20 and wqs < lastwqs[0] and adadelay <= 0:
+                adadelay = 100
+                with deepening.get_lock():
+                    deepening.value -= 1
+                    print "decreased deepening to " + str(deepening.value) + " at queue size " + str(wqs)
+            lastwqs = lastwqs[1:] + [wqs]
+            adadelay -= 1
+
+            if processed % 100 == 0:
+                print "queue length " + str(wqs)
 
             if item is None:
                 # Swallow the sentinel and exit:
                 break
 
-            if isinstance(item, basestring) or (random.random() > (diligence ** (item[1] - 12))):
+            if isinstance(item, basestring):
                 # Return the item to the master:
                 master_queue.put((name, item))
                 continue
@@ -956,7 +1004,8 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
         K = pset['k']
         J = pset['j']
         njobs = pset['p']
-
+        deepening = multiprocessing.Value(ctypes.c_ulong)
+        deepening.value = 48
         # i6tuple, iw = canon6(i6tuple)
         # ls = (W - iw) // 2
         # centred_i6tuple = tuple([(r << ls) for r in i6tuple])
@@ -971,7 +1020,7 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
             worker_path = os.path.join(homedir, ('worker%d' % len(workers)))
             workers.append(multiprocessing.Process(target=worker_function,
                                                    args=(direc, master_queue, worker_queue, worker_path,
-                                                         new_params, pset['d'], pset['t'], encoding)))
+                                                         new_params, pset['d'], pset['t'], encoding, deepening)))
 
         argdict[direc] = (worker_queue, i6tuple, W, K, J)
 
@@ -979,7 +1028,7 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
                                                             args=(direc, worker_queue, njobs, pset['a'])))
 
     master = multiprocessing.Process(target=master_function,
-                                     args=(master_queue, backup_dir, argdict, params, cmd))
+                                     args=(master_queue, backup_dir, argdict, params, cmd, deepening))
 
     # Swallow SIGINT:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -1175,7 +1224,7 @@ def clmain():
     # args = parser.parse_args()
 
     args = parser.parse_args(
-        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/trash", "-v", "3c/10o", "-b", "p1k64w2"])
+        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/knight_adapt", "-v", "(2,1)c/6", "-f", "p1k64w3"])
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")

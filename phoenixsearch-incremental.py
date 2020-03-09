@@ -210,63 +210,42 @@ class OscillatorSearch(basegrill):
         return stages_completed, satisfied
 
 
-def readsol(solstr, maxy = 999, xoff = 0):
+def readsol(solstr, maxy = 999, xoff = 0, yoff = 0):
     rows = solstr.split("\n")
     result = {}
     states = {".": DEAD_VARIABLE_STATE, "*": LIVE_VARIABLE_STATE}
     t = 0
     x = xoff
     for r in rows:
-        if len(r) < 4:
+        if len(r) < 2:
             continue
         y = 0
         for c in r:
             if c not in states or y >= maxy:
                 continue
-            result[(t, x, y)] = states[c]
+            result[(t, x, y + yoff)] = states[c]
             y += 1
         x += 1
     return result
 
 
+
 if __name__ == "__main__":
     starttime = time.time()
     solstr = """
-.................................
-.................................
-...............*.................
-.............*.*.................
-.................*...............
-*..........**.................*.*
-*.*...*..........**.....*.......*
-......*.*...*.........*.*...*.*..
-...**.........*.*.........*...*.*
-.........**...*.....**......*....
-..**........................*...*
-..........*.........*...........*
-**..........*.*.*...........*.*..
-..........*.....*.*.*.....*.*.*..
-..*...*.*.*.*.....*.....*.*......
-....*...*...........*.*.*.....*..
-....*.......*.....*..............
-*.*..........................*.**
-*....*......**...**........*.....
-.....*.*.................*.*...**
-.*.*.....*.*.......*.............
-.*.......*.............**........
-....*.......*......**.........*.*
-....*.*.....*.*.........*.....*..
-*.*.....*.*.....*.*.......*.*....
-*.......*.......*.........*.....*
-.................................
-.................................
+***
+*.*
+***
+
     """
-    maxy = 0
-    xoff = 0
-    setcells = readsol(solstr, maxy = maxy, xoff = xoff)
+    maxy = 10
+    xoff = 7
+    setcells = readsol(solstr, maxy = maxy, xoff = xoff, yoff = 7)
+    print(setcells)
+
     print("maxy", maxy, "xoff", xoff)
-    a = OscillatorSearch(5, 28, 42, 2, setcells=setcells, forcecorner=False, forcerim=False, forcephoenix=True, forcefull=True,
-                         forcecenter=True, periodic=False, forcecenterchange=True, forceoppositeedge=True)
+    a = OscillatorSearch(3, 19, 19, 2, setcells=setcells, forcecorner=True, forcerim=True, forcephoenix=False, forcefull=True,
+                         forcecenter=False, periodic=False, forcecenterchange=False, forceoppositeedge=False)
     #30-17 with fullby 8 returned unsat
     a.exhaust("test%d" % os.getpid(), "test%d" % os.getpid(), multiprocessing.Queue(), timeout=10000000)
     endtime = time.time()

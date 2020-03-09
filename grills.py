@@ -1,4 +1,5 @@
 # GRILLS -- Golly-Regulated Interactive Logic Life Search
+import functools
 from sys import stderr
 import os
 import subprocess
@@ -92,7 +93,7 @@ def get_life_transitions():
 
     trans = []
 
-    for i in xrange(256):
+    for i in range(256):
         bits = bin(256 + i)[-8:]
         hw = bits.count('1')
         trans.append(('11' if (2 <= hw <= 3) else '10') + bits)
@@ -106,7 +107,7 @@ MEMOIZED_POSS2 = {}
 def get_poss2(poss):
     if poss not in MEMOIZED_POSS2:
         reltrans = [z for z in LIFE_TRANSITIONS if ((z & poss) == z)]
-        MEMOIZED_POSS2[poss] = reduce((lambda a, b : a | b), reltrans, 0)
+        MEMOIZED_POSS2[poss] = functools.reduce((lambda a, b : a | b), reltrans, 0)
     return MEMOIZED_POSS2[poss]
 
 
@@ -238,7 +239,7 @@ class basegrill(satinstance):
             if (minimum <= k2 <= maximum):
                 self.newclause(-atleast(k2), *[v for v in vees])
 
-        return [(z[i] if (i in z) else 0) for i in xrange(maximum + 1)]
+        return [(z[i] if (i in z) else 0) for i in range(maximum + 1)]
 
     def getv2(self, gen, x, y):
         key = 'v2 %d %d %d' % (gen, x, y)
@@ -294,6 +295,7 @@ class basegrill(satinstance):
         else:
             raise ValueError("'encoding' must be either 'knuth', 'split', or 'naive'")
 
+
         c = self.cells[(gen, x, y)]
         cc = self.cells[(gen+1, x, y)]
         self.newclause(-cc, -s[4])
@@ -307,6 +309,30 @@ class basegrill(satinstance):
             yy = self.newvar()
             self.newclause(cc, -c, -yy)
             self.newclause(yy, s[4], -s[2])
+
+    def resolve_b25s2(self, gen, x, y, quaternary=True, encoding='split'):
+        x3_left = self.getx3(gen, x-1, y)
+        x2_centre = self.getx2(gen, x, y)
+        x3_right = self.getx3(gen, x+1, y)
+        s = self.variadic_sum(x3_left, x2_centre, x3_right, minimum=2, maximum=6)
+        # DOESN'T WORK
+        exactly2 = self.newvar()
+        exactly5 = self.newvar()
+        self.newclause(-exactly2, s[2])
+        self.newclause(-exactly2, -s[3])
+        self.newclause(exactly2, -s[2], s[3])
+        self.newclause(-exactly5, s[5])
+        self.newclause(-exactly5, -s[6])
+        self.newclause(exactly5, -s[5], s[6])
+        c = self.cells[(gen, x, y)]
+        cc = self.cells[(gen+1, x, y)]
+        self.newclause(-cc, -s[6])
+        self.newclause(-cc, s[2])
+        self.newclause(-cc, -s[3], s[5])
+        self.newclause(-cc, -c, s[3])
+        self.newclause(cc, c, s[6], -s[5])
+        self.newclause(cc, s[3], -s[2])
+
 
     def enforce_rule(self, preprocess=True, **kwargs):
         '''
@@ -334,7 +360,10 @@ class basegrill(satinstance):
                 else:
                     if (modus_operandi == 'resolve'):
                         if (indets > 0):
-                            self.resolve(gen, x, y, **kwargs)
+                            if "rule" in kwargs and kwargs["rule"] == "b25s2":
+                                self.resolve_b25s2(gen, x, y)
+                            else:
+                                self.resolve(gen, x, y, **kwargs)
                     if (modus_operandi == 'preprocess'):
                         # Possible compatible transitions:
                         poss2 = get_poss2(poss)
