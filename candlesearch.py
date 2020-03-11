@@ -1,4 +1,4 @@
-from assumptiononly import AssumptionSearch
+from assumptiononly import AssumptionSearch, trace_to_rle, canon6
 import time
 from iqpx import parse_velocity, partial_derivatives, printint
 from copy import copy
@@ -8,8 +8,8 @@ resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM
 sys.setrecursionlimit(10000000)
 
 class CandleSearch(AssumptionSearch):
-    def __init__(self, W, H, params):
-        super(CandleSearch, self).__init__(W, H, params)
+    def __init__(self, W, H, params, symmetry):
+        super(CandleSearch, self).__init__(W, H, params, symmetry=symmetry)
 
     def shiftup(self, state):
         res = []
@@ -51,10 +51,11 @@ class CandleSearch(AssumptionSearch):
             rows = tuple(list(self.sol2rows(sol))[1:(2*self.params["p"])+1])
             sofar = partial + list(self.sol2rows(sol))[len(rows):]
             print(sofar)
-            for i in range(0, len(sofar), self.params["p"]):
-                printint(sofar[i])
+            tempts, _ = canon6(sofar)
+            print(tempts)
+            rle = trace_to_rle(tempts, params).split("\n\n")[0]
+            print(rle)
             #self.sol2pat(sol)
-            print(self.sol2rows(sol))
             print(rows)
             if list(rows) == [0]*len(rows):
                  return list(self.sol2rows(sol))
@@ -107,10 +108,16 @@ if __name__ == "__main__":
     # Would require implementing the traceship-and-padding backed adaptive-deepening-with-one-sat-instance thing first
     # but it seems like increased lookahead decreases the branching factor at the cost of time-per-call
     # and the higher the branching factor the more that's worth.
-    a, b, p = parse_velocity("3c/8o")
+    # checked w25 for (3,1)c/8, no ships
+    a, b, p = parse_velocity("(4, 1)c/10")
+    print str((a, b, p))
     params = partial_derivatives(a, b, p)
-    search = CandleSearch(29, 2*p + 48, params)
+    w = 25
+    k = 53
+    print "w: " + str(w) + " k: " + str(k)
+    search = CandleSearch(w, 2*p + k, params, False)
     initialrows = tuple([0]*(2*p))
+
     assump = search.rows2assump(initialrows)
     important = search.rows[len(initialrows)]
     print(assump)

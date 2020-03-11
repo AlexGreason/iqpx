@@ -90,7 +90,7 @@ class PartialExtender(basegrill):
                     self.important_variables.add(variable)
                 if v >= (self.full_height - len(initial_rows)):
                     self.bottom_variables.add(variable)
-        self.enforce_symmetry()
+       # self.enforce_symmetry()
 
     def enforce_symmetry(self):
         for (gen, x, y) in self.cells:
@@ -708,14 +708,25 @@ def worker_function(name, master_queue, worker_queue, worker_root,
 
         # We enumerate widths backwards so we can eliminate impossible tasks:
         widths = list(xrange(min_W, max_W + 1, 2))[::-1]
-
+        unsats = set([])
         for W in widths:
-            i = (W - w) // 2
-            rows = tuple([(r << i) for r in fsegment])
-            satisfied = single_work(rows, w, W, K)
+            if (w == 0):
+                # Zero tuple:
+                offsets = [0]
+            else:
+                # Try different offsets:
+                offsets = list(xrange(W - w + 1))
 
-            if not satisfied:
-                break
+            for i in offsets:
+                j = W - w - i
+
+                if ((i + 1, j) in unsats) or ((i, j + 1) in unsats):
+                    satisfied = False
+                else:
+                    rows = tuple([(r << i) for r in fsegment])
+                    satisfied = single_work(rows, w, W, K)
+                if not satisfied:
+                    unsats.add((i, j))
 
         return fsegment, max_W
 
@@ -1175,7 +1186,7 @@ def clmain():
     # args = parser.parse_args()
 
     args = parser.parse_args(
-        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/trash", "-v", "3c/10o", "-b", "p1k64w2"])
+        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/31c_8_nonadapt", "-v", "(3,1)c/8o", "-f", "p7k50w23"])
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")

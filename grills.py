@@ -1,5 +1,6 @@
 # GRILLS -- Golly-Regulated Interactive Logic Life Search
 import functools
+import time
 from sys import stderr
 import os
 import subprocess
@@ -272,7 +273,7 @@ class basegrill(satinstance):
         return self.cache[key]
 
     def resolve(self, gen, x, y, quaternary=True, encoding='split'):
-
+        a = time.time()
         if (encoding == 'knuth'):
             xf = x ^ 1
             yf = y ^ 1
@@ -294,7 +295,7 @@ class basegrill(satinstance):
             s = self.variadic_sum(*neighbours, minimum=2, maximum=4)
         else:
             raise ValueError("'encoding' must be either 'knuth', 'split', or 'naive'")
-
+        #times["encode"] += time.time() - a
 
         c = self.cells[(gen, x, y)]
         cc = self.cells[(gen+1, x, y)]
@@ -310,30 +311,6 @@ class basegrill(satinstance):
             self.newclause(cc, -c, -yy)
             self.newclause(yy, s[4], -s[2])
 
-    def resolve_b25s2(self, gen, x, y, quaternary=True, encoding='split'):
-        x3_left = self.getx3(gen, x-1, y)
-        x2_centre = self.getx2(gen, x, y)
-        x3_right = self.getx3(gen, x+1, y)
-        s = self.variadic_sum(x3_left, x2_centre, x3_right, minimum=2, maximum=6)
-        # DOESN'T WORK
-        exactly2 = self.newvar()
-        exactly5 = self.newvar()
-        self.newclause(-exactly2, s[2])
-        self.newclause(-exactly2, -s[3])
-        self.newclause(exactly2, -s[2], s[3])
-        self.newclause(-exactly5, s[5])
-        self.newclause(-exactly5, -s[6])
-        self.newclause(exactly5, -s[5], s[6])
-        c = self.cells[(gen, x, y)]
-        cc = self.cells[(gen+1, x, y)]
-        self.newclause(-cc, -s[6])
-        self.newclause(-cc, s[2])
-        self.newclause(-cc, -s[3], s[5])
-        self.newclause(-cc, -c, s[3])
-        self.newclause(cc, c, s[6], -s[5])
-        self.newclause(cc, s[3], -s[2])
-
-
     def enforce_rule(self, preprocess=True, **kwargs):
         '''
         Apply the transition constraints.
@@ -342,6 +319,7 @@ class basegrill(satinstance):
         modus_operandi = 'preprocess' if preprocess else 'resolve'
 
         total_optimisations = 0
+        a = time.time()
         while (modus_operandi):
             optimisations = 0
             for (gen, x, y) in self.cells:
@@ -360,10 +338,7 @@ class basegrill(satinstance):
                 else:
                     if (modus_operandi == 'resolve'):
                         if (indets > 0):
-                            if "rule" in kwargs and kwargs["rule"] == "b25s2":
-                                self.resolve_b25s2(gen, x, y)
-                            else:
-                                self.resolve(gen, x, y, **kwargs)
+                            self.resolve(gen, x, y, **kwargs)
                     if (modus_operandi == 'preprocess'):
                         # Possible compatible transitions:
                         poss2 = get_poss2(poss)
@@ -378,8 +353,11 @@ class basegrill(satinstance):
             total_optimisations += optimisations
             if (modus_operandi == 'preprocess'):
                 if (optimisations == 0):
+                    #times["optim"] += time.time() - a
+                    a = time.time()
                     modus_operandi = 'resolve'
             elif (modus_operandi == 'resolve'):
+                #times["resolve"] += time.time() - a
                 modus_operandi = None
 
     def load_solution(self, solution_file):

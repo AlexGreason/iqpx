@@ -113,7 +113,7 @@ class PartialExtender(basegrill):
                 xrange(self.full_height)]
         return tuple(rows)
 
-    def exhaust(self, name, prefix, outqueue, timeout=600, skip_complete=False):
+    def exhaust(self, name, prefix, outqueue, maxbranch, timeout=600, skip_complete=False):
         """
         Find all of the possibilities for the next row after the ones
         provided in the problem. Because iglucose is known to have
@@ -141,7 +141,7 @@ class PartialExtender(basegrill):
         cnf_fifo = open(cnf_fifoname, 'w+')
         run_iglucose(("-cpu-lim=%d" % int(timeout)), cnf_fifoname, sol_fifoname)
         sol_fifo = open(sol_fifoname, 'r')
-
+        tosubmit = []
         try:
             cnf_fifo.write('p inccnf\n')
             self.write_dimacs(cnf_fifo, write_header=False)
@@ -184,7 +184,9 @@ class PartialExtender(basegrill):
                                 next_term |= (1 << (w - v0))
                     anticlause = ' '.join([str(a) for a in anticlause if (a != 0)])
                     cnf_fifo.write('%s 0\n' % anticlause)
-                    outqueue.put((name, self.sol2rows(sol)))
+                    tosubmit.append((name, self.sol2rows(sol)))
+                    if len(tosubmit) > maxbranch:
+                        return -1, False, tosubmit
                 elif sol[:5] == 'INDET':
                     running = False
                 else:
@@ -205,7 +207,7 @@ class PartialExtender(basegrill):
             os.unlink(sol_fifoname)
             os.unlink(cnf_fifoname)
 
-        return stages_completed, satisfied
+        return stages_completed, satisfied, tosubmit
 
 
 def canon6(rows):
@@ -407,7 +409,7 @@ class ikpxtree(object):
         stdout.flush()
         self.rundict()
         print('...adaptive widening completed.')
-        self.deepening.value = 64
+        self.deepening.value = self.lookahead
         stdout.flush()
 
     def addpred(self, fsegment, isegment, w):
@@ -494,22 +496,9 @@ class ikpxtree(object):
 
             if currlength > 0:
 
-                self.enqueue_work(fsegment, w)
+                self.enqueue_work(fsegment, w, narrow=False)
 
                 wqs = worker_queue.qsize()
-                # with self.deepening.get_lock():
-                #     if wqs > 5000 and wqs > self.lastwqs[0] and self.adadelay < 0:
-                #         self.deepening.value += 1
-                #         self.adadelay = 100
-                #         print "increased deepening to " + str(self.deepening.value) + " at queue size " + str(wqs)
-                #     if wqs < 4000 and self.deepening.value > 20 and wqs < self.lastwqs[0] and self.adadelay < 0:
-                #         self.adadelay = 100
-                #         self.deepening.value -= 1
-                #         print "decreased deepening to " + str(self.deepening.value) + " at queue size " + str(wqs)
-                # self.adadelay -= 1
-                # self.lastmm = wqs // 1000000
-                # self.lastwqs = self.lastwqs[1:] + [wqs]
-
                 if len(self.preds) % 100 == 0:
                     queue_size = ' (%s queue size ~= %d)' % (self.name, wqs)
                     print("%d %s edges traversed%s." % (len(self.preds), self.name, queue_size))
@@ -681,19 +670,27 @@ def worker_function(name, master_queue, worker_queue, worker_root,
     the iglucose solvers (the _real_ workers!).
     """
 
+    times = {"noffsets":0.0, "createpx":0.0, "enforce":0.0, "exhaust":0.0, "total":0.0, "neasy":0.0, "optim":0.0, "resolve":0.0, "encode":0.0, }
     def raise_keyboard_interrupt(signal, frame):
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, raise_keyboard_interrupt)
 
-    def single_work(rows, w, W, K):
+    def single_work(rows, w, W, K, maxbranch):
+        a = time.time()
         px = PartialExtender(W, K, rows, params)
-        px.enforce_rule(encoding=encoding)
+        times["createpx"] += time.time() - a
+        a = time.time()
+        px.enforce_rule(times, encoding=encoding)
+        times["enforce"] += time.time() - a
+        a = time.time()
         satisfied = False
         if px.easy_unsat():
             # The problem has been deemed unsatisfiable by easy deductions
             # so it would be overkill to run a new instance of iglucose:
-            return False
+            times["exhaust"] += time.time() - a
+            times["neasy"] += 1
+            return False, []
         else:
             if px.reverse:
                 # Growing things in reverse is difficult, so we don't even
@@ -703,48 +700,68 @@ def worker_function(name, master_queue, worker_queue, worker_root,
                 # The problem may have solutions, so we run iglucose to find
                 # all possible completions of the next row (within a time
                 # limit to ensure things continue moving quickly):
-                stages_completed, satisfied = px.exhaust(name, worker_root, master_queue, timeout=timeout)
+                stages_completed, satisfied, tosubmit = px.exhaust(name, worker_root, master_queue, maxbranch, timeout=timeout)
+                if len(tosubmit) > maxbranch:
+                    return satisfied, tosubmit
 
             if stages_completed == 0:
                 # The time limit was reached without a satisfactory
                 # conclusion, so we retry without the initial attempt to
                 # complete the pattern:
-                stages_completed, satisfied = px.exhaust(name, worker_root, master_queue, skip_complete=True,
-                                                         timeout=timeout)
+                stages_completed, satisfied, tosubmit = px.exhaust(name, worker_root, master_queue, maxbranch, skip_complete=True,
+                                                             timeout=timeout)
+                if len(tosubmit) > maxbranch:
+                    return satisfied, tosubmit
 
-            return satisfied or (stages_completed < 2)
+            times["exhaust"] += time.time() - a
+            return satisfied or (stages_completed < 2), tosubmit
+
 
     def multiple_work(fsegment, w, min_W, max_W, K):
-
+        K = deepening.value
         # No empty work:
         min_W = max(min_W, 2)
 
         # We enumerate widths backwards so we can eliminate impossible tasks:
         widths = list(xrange(min_W, max_W + 1))[::-1]
-        unsats = set([])
 
-        for W in widths:
+        maxbranch = 10
+        while True:
+            unsats = set([])
+            tosubmit = []
+            for W in widths:
 
-            if (w == 0):
-                # Zero tuple:
-                offsets = [0]
-            else:
-                # Try different offsets:
-                offsets = list(xrange(W - w + 1))
-
-            for i in offsets:
-                j = W - w - i
-
-                if ((i+1, j) in unsats) or ((i, j+1) in unsats):
-                    satisfied = False
+                if (w == 0):
+                    # Zero tuple:
+                    offsets = [0]
                 else:
-                    rows = tuple([(r << i) for r in fsegment])
-                    satisfied = single_work(rows, w, W, K)
+                    # Try different offsets:
+                    offsets = list(xrange(W - w + 1))
 
-                if not satisfied:
-                    unsats.add((i, j))
+                for i in offsets:
+                    times["noffsets"] += 1
+                    j = W - w - i
 
-        return (fsegment, max_W)
+                    if ((i+1, j) in unsats) or ((i, j+1) in unsats):
+                        satisfied = False
+                    else:
+                        rows = tuple([(r << i) for r in fsegment])
+                        satisfied, newtosubmit = single_work(rows, w, W, K, maxbranch)
+                        tosubmit += newtosubmit
+                        if len(tosubmit) > maxbranch:
+                            break
+                    if not satisfied:
+                        unsats.add((i, j))
+                if len(tosubmit) > maxbranch:
+                    break
+            if len(tosubmit) > maxbranch:
+                print "aborted due to excessive branching at depth " + str(K) + ", maxbranch " + str(maxbranch)
+                maxbranch *= 2
+                K += 3
+            else:
+                for t in tosubmit:
+                    master_queue.put(t)
+                return (fsegment, max_W)
 
 
     def perform_work(item):
@@ -757,19 +774,21 @@ def worker_function(name, master_queue, worker_queue, worker_root,
             return multiple_work(*item)
 
     try:
-        lastwqs = [0]*100
+        lastwqs = [0]*40
         adadelay = 0
         processed = -1
+        queuethresh = 5000
         while True:
+            a = time.time()
             processed += 1
             item = worker_queue.get()
             wqs = worker_queue.qsize()
-            if wqs > 5000 and wqs > lastwqs[0] and adadelay <= 0:
-                adadelay = 100
+            if wqs > queuethresh and wqs > lastwqs[0] and adadelay <= 0:
+                adadelay = 30
                 with deepening.get_lock():
-                    deepening.value += 3
+                    deepening.value += 1
                     print "increased deepening to " + str(deepening.value) + " at queue size " + str(wqs)
-            if wqs < 5000 and deepening.value > 20 and wqs < lastwqs[0] and adadelay <= 0:
+            if wqs < queuethresh and deepening.value > 32 and wqs < lastwqs[0] and adadelay <= 0:
                 adadelay = 100
                 with deepening.get_lock():
                     deepening.value -= 1
@@ -777,8 +796,9 @@ def worker_function(name, master_queue, worker_queue, worker_root,
             lastwqs = lastwqs[1:] + [wqs]
             adadelay -= 1
 
-            if processed % 100 == 0:
+            if processed % 100 == 0 and processed != 0:
                 print "queue length " + str(wqs)
+                print str(processed) + " " + ", ".join([k + ": " + str(times[k]/processed) for k in times])
 
             if item is None:
                 # Swallow the sentinel and exit:
@@ -794,6 +814,7 @@ def worker_function(name, master_queue, worker_queue, worker_root,
                 master_queue.put((name, ('done',) + returned_work))
             else:
                 master_queue.put((name, 'done'))
+            times["total"] += time.time() - a
     except KeyboardInterrupt:
         print("SIGINT occurred on worker %s" % worker_root)
         stdout.flush()
@@ -1005,7 +1026,7 @@ def do_everything(psets, params, homedir, encoding='split', loadhead=None, cmd=N
         J = pset['j']
         njobs = pset['p']
         deepening = multiprocessing.Value(ctypes.c_ulong)
-        deepening.value = 48
+        deepening.value = K
         # i6tuple, iw = canon6(i6tuple)
         # ls = (W - iw) // 2
         # centred_i6tuple = tuple([(r << ls) for r in i6tuple])
@@ -1224,7 +1245,7 @@ def clmain():
     # args = parser.parse_args()
 
     args = parser.parse_args(
-        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/knight_adapt", "-v", "(2,1)c/6", "-f", "p1k64w3"])
+        args=["-d", "/home/exa/Documents/lifestuff/iqpx_out/knight_adapt", "-v", "(3,1)c/8", "-f", "p6k50w23"])
 
     horizontal_line()
     print("Incremental Spaceship Partial Extend (iqpx)")

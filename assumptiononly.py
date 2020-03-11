@@ -4,7 +4,7 @@ from iqpx import *
 
 
 class AssumptionSearch(basegrill):
-    def __init__(self, W, H, params):
+    def __init__(self, W, H, params, symmetry=True):
         super(AssumptionSearch, self).__init__()
         self.HPADDING = calculate_padding(params['dudt'], params['dudx'], params['dudy'])
         self.params = params
@@ -38,11 +38,12 @@ class AssumptionSearch(basegrill):
                     x = xp // p
                     y = yq // dvdy
                     self.relate(variable, (t, x, y))
-                    print((t, x, y))
+                   # print((t, x, y))
                 if state == UNKNOWN_VARIABLE_STATE:
                     self.rows[v].append(variable)
-        self.enforce_symmetry()
-        self.enforce_rule(preprocess=True)
+        if symmetry:
+            self.enforce_symmetry()
+        self.enforce_rule(preprocess=False)
 
     def enforce_symmetry(self):
         for (gen, x, y) in self.cells:
@@ -176,8 +177,15 @@ class AssumptionSearch(basegrill):
         print(assigned)
         if len(toassign) == 0:
             solutions.append(copy(assigned))
-            # sol = self.ispossible(cnf_fifo, sol_fifo, state + assigned)
-            # self.sol2pat(sol)
+            print("checking")
+            sol = self.ispossible(cnf_fifo, sol_fifo, state + assigned)
+            print("printing")
+            rows = self.sol2rows(sol)
+            print(rows)
+            tempts, _ = canon6(rows)
+            print(tempts)
+            rle = trace_to_rle(tempts, params)
+            print(rle)
             return
         var = toassign[0]
         for o in order:
@@ -207,10 +215,23 @@ class AssumptionSearch(basegrill):
 
 
 if __name__ == "__main__":
-    a, b, p = parse_velocity("5c/11o")
+    a, b, p = parse_velocity("(3, 1)c/8")
+    print str((a, b, p))
     params = partial_derivatives(a, b, p)
-    search = AssumptionSearch(16, 2*p + 90, params)
+    w = 28
+    k = 88
+    print "w: " + str(w) + " k: " + str(k)
+    search = AssumptionSearch(w, 2*p + k, params, symmetry=False)
+    #w20, 19 seconds
+    #w21, 53 seconds
+    #w22, 117 seconds
+    #w23, 294 seconds
+    #w24, unknown but it failed
+    #w25, 2075 seconds
+    #w26, 5104 seconds
     initialrows = tuple([0]*(2*p))
+
+    #initialrows = tuple([x*4 for x in initialrows])
     assump = search.rows2assump(initialrows)
     important = search.rows[len(initialrows)]
     print(assump)
@@ -220,8 +241,8 @@ if __name__ == "__main__":
     print "finished in " + str(time.time() - start)
     print(sols)
     print(len(sols))
-    # for s in sols:
-    #     print(search.sol2row(s, len(initialrows)))
+    #for s in sols:
+    #    print(search.sol2row(s, len(initialrows)))
 
 
 
